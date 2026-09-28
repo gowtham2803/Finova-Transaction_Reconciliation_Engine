@@ -39,4 +39,68 @@ public class ReconciliationResult {
     private LocalDateTime createdAt;
 
     // Getters and Setters
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public Reconciliation getReconciliation() {
+        return reconciliation;
+    }
+
+    public void setReconciliation(Reconciliation reconciliation) {
+        this.reconciliation = reconciliation;
+    }
+
+    public Transaction getmInTransaction() {
+        return mInTransaction;
+    }
+
+    public void setmInTransaction(Transaction mInTransaction) {
+        this.mInTransaction = mInTransaction;
+    }
+
+    public Transaction getmOutTransaction() {
+        return mOutTransaction;
+    }
+
+    public void setmOutTransaction(Transaction mOutTransaction) {
+        this.mOutTransaction = mOutTransaction;
+    }
+
+    public String getMatchStatus() {
+        return matchStatus;
+    }
+
+    public void setMatchStatus(String matchStatus) {
+        this.matchStatus = matchStatus;
+    }
+
+    public String getErrorType() {
+        return errorType;
+    }
+
+    public void setErrorType(String errorType) {
+        this.errorType = errorType;
+    }
+
+    public String getErrorReason() {
+        return errorReason;
+    }
+
+    public void setErrorReason(String errorReason) {
+        this.errorReason = errorReason;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
 }

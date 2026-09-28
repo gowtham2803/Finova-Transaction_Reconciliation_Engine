@@ -56,4 +56,108 @@ public class Transaction {
     private LocalDateTime updatedAt;
 
     // Getters and Setters
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public Reconciliation getReconciliation() {
+        return reconciliation;
+    }
+
+    public void setReconciliation(Reconciliation reconciliation) {
+        this.reconciliation = reconciliation;
+    }
+
+    public Branch getBranch() {
+        return branch;
+    }
+
+    public void setBranch(Branch branch) {
+        this.branch = branch;
+    }
+
+    public String getSourceSheet() {
+        return sourceSheet;
+    }
+
+    public void setSourceSheet(String sourceSheet) {
+        this.sourceSheet = sourceSheet;
+    }
+
+    public Integer getSourceRow() {
+        return sourceRow;
+    }
+
+    public void setSourceRow(Integer sourceRow) {
+        this.sourceRow = sourceRow;
+    }
+
+    public Branch getFromBranch() {
+        return fromBranch;
+    }
+
+    public void setFromBranch(Branch fromBranch) {
+        this.fromBranch = fromBranch;
+    }
+
+    public Branch getToBranch() {
+        return toBranch;
+    }
+
+    public void setToBranch(Branch toBranch) {
+        this.toBranch = toBranch;
+    }
+
+    public BigDecimal getAmount() {
+        return amount;
+    }
+
+    public void setAmount(BigDecimal amount) {
+        this.amount = amount;
+    }
+
+    public BigDecimal getCommission() {
+        return commission;
+    }
+
+    public void setCommission(BigDecimal commission) {
+        this.commission = commission;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
+    public Integer getVersion() {
+        return version;
+    }
+
+    public void setVersion(Integer version) {
+        this.version = version;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
 }
