@@ -11,4 +11,13 @@ public interface ReconciliationErrorRepository
     List<ReconciliationError> findByReconciliationResultId(Long reconciliationResultId);
 
     List<ReconciliationError> findByStatus(String status);
+
+    List<ReconciliationError>
+    findByReconciliationResultReconciliationId(Long reconciliationId);
+
+    List<ReconciliationError>
+    findByReconciliationResultReconciliationIdAndStatus(
+            Long reconciliationId,
+            String status
+    );
 }

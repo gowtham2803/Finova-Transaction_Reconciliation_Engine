@@ -22,7 +22,7 @@ spring:
     locations: classpath:db/migration
 
 server:
-  port: 8080
+  port: 8088
 
 management:
   endpoints:

@@ -10,9 +10,13 @@ import com.company.reconciliation.reconciliation.error.repository.Reconciliation
 import com.company.reconciliation.reconciliation.repository.ReconciliationRepository;
 import com.company.reconciliation.transaction.entity.Transaction;
 import com.company.reconciliation.transaction.repository.TransactionRepository;
+import com.company.reconciliation.reconciliation.dto.response.ReconciliationResultResponse;
+import com.company.reconciliation.reconciliation.dto.response.ReconciliationErrorResponse;
+
 import jakarta.persistence.EntityNotFoundException;
-import jakarta.transaction.Transactional;
+
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -116,6 +120,182 @@ public class ReconciliationService {
         return result;
     }
 
+    // Retrieve all results for a reconciliation
+    @Transactional
+    public List<ReconciliationResultResponse> getResultsByReconciliation(
+            Long reconciliationId) {
+
+        validateReconciliationExists(reconciliationId);
+
+        return reconciliationResultRepository
+                .findByReconciliationId(reconciliationId)
+                .stream()
+                .map(this::mapToResultResponse)
+                .toList();
+    }
+
+    // Retrieve all errors for a reconciliation,
+    // optionally filtered by status
+    @Transactional
+    public List<ReconciliationErrorResponse> getErrorsByReconciliation(
+            Long reconciliationId,
+            String status) {
+
+        validateReconciliationExists(reconciliationId);
+
+        List<ReconciliationError> errors;
+
+        if (status == null || status.isBlank()) {
+            errors = reconciliationErrorRepository
+                    .findByReconciliationResultReconciliationId(
+                            reconciliationId
+                    );
+        } else {
+            errors = reconciliationErrorRepository
+                    .findByReconciliationResultReconciliationIdAndStatus(
+                            reconciliationId,
+                            status
+                    );
+        }
+
+        return errors.stream()
+                .map(this::mapToErrorResponse)
+                .toList();
+    }
+
+    // Retrieve one error by ID
+    @Transactional
+    public ReconciliationErrorResponse getErrorById(Long errorId) {
+
+        if (errorId == null || errorId <= 0) {
+            throw new IllegalArgumentException(
+                    "Error ID must be positive"
+            );
+        }
+
+        ReconciliationError error = reconciliationErrorRepository
+                .findById(errorId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Reconciliation error not found with ID: " + errorId
+                ));
+
+        return mapToErrorResponse(error);
+    }
+
+    // Resolve an open reconciliation error
+    @Transactional
+    public ReconciliationErrorResponse resolveError(Long errorId) {
+
+        if (errorId == null || errorId <= 0) {
+            throw new IllegalArgumentException(
+                    "Error ID must be a positive number."
+            );
+        }
+
+        ReconciliationError error = reconciliationErrorRepository
+                .findById(errorId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Reconciliation error not found with ID: " + errorId
+                ));
+
+        if ("RESOLVED".equalsIgnoreCase(error.getStatus())) {
+            throw new IllegalStateException(
+                    "This error has already been resolved."
+            );
+        }
+
+        if (!"OPEN".equalsIgnoreCase(error.getStatus())) {
+            throw new IllegalStateException(
+                    "Only OPEN errors can be resolved."
+            );
+        }
+
+        error.setStatus("RESOLVED");
+        error.setUpdatedAt(LocalDateTime.now());
+
+        ReconciliationError savedError =
+                reconciliationErrorRepository.save(error);
+
+        return mapToErrorResponse(savedError);
+    }
+
+    // Validate reconciliation exists
+    private void validateReconciliationExists(Long reconciliationId) {
+
+        if (reconciliationId == null || reconciliationId <= 0) {
+            throw new IllegalArgumentException(
+                    "Reconciliation ID must be positive"
+            );
+        }
+
+        if (!reconciliationRepository.existsById(reconciliationId)) {
+            throw new EntityNotFoundException(
+                    "Reconciliation not found with ID: " + reconciliationId
+            );
+        }
+    }
+
+    // Map result entity to response DTO
+    private ReconciliationResultResponse mapToResultResponse(
+            ReconciliationResult result) {
+
+        ReconciliationResultResponse response =
+                new ReconciliationResultResponse();
+
+        response.setId(result.getId());
+        response.setReconciliationId(
+                result.getReconciliation().getId()
+        );
+
+        response.setmInTransactionId(
+                result.getmInTransaction() != null
+                        ? result.getmInTransaction().getId()
+                        : null
+        );
+
+        response.setmOutTransactionId(
+                result.getmOutTransaction() != null
+                        ? result.getmOutTransaction().getId()
+                        : null
+        );
+
+        response.setMatchStatus(result.getMatchStatus());
+        response.setErrorType(result.getErrorType());
+        response.setErrorReason(result.getErrorReason());
+        response.setCreatedAt(result.getCreatedAt());
+
+        return response;
+    }
+
+    // Map error entity to response DTO
+    private ReconciliationErrorResponse mapToErrorResponse(
+            ReconciliationError error) {
+
+        ReconciliationErrorResponse response =
+                new ReconciliationErrorResponse();
+
+        response.setId(error.getId());
+
+        response.setReconciliationId(
+                error.getReconciliationResult()
+                        .getReconciliation()
+                        .getId()
+        );
+
+        response.setReconciliationResultId(
+                error.getReconciliationResult().getId()
+        );
+
+        response.setErrorType(error.getErrorType());
+        response.setErrorCode(error.getErrorCode());
+        response.setDescription(error.getDescription());
+        response.setStatus(error.getStatus());
+        response.setCreatedAt(error.getCreatedAt());
+        response.setUpdatedAt(error.getUpdatedAt());
+
+        return response;
+    }
+
     private NormalizedTransaction normalize(Transaction transaction) {
         return new NormalizedTransaction(
                 transaction.getId(),
@@ -145,6 +325,7 @@ public class ReconciliationService {
             reconciliationResult.setmOutTransaction(
                     transactionMap.get(match.mOutTransaction().transactionId())
             );
+
             reconciliationResult.setMatchStatus("MATCHED");
             reconciliationResult.setErrorType(null);
             reconciliationResult.setErrorReason(null);
@@ -178,6 +359,7 @@ public class ReconciliationService {
                             ? null
                             : transactionMap.get(issue.mOutTransaction().transactionId())
             );
+
             reconciliationResult.setMatchStatus("ISSUE");
             reconciliationResult.setErrorType(errorType);
             reconciliationResult.setErrorReason(issue.description());

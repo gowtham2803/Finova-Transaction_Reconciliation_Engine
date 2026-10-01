@@ -13,6 +13,7 @@ import com.company.reconciliation.transaction.entity.Transaction;
 import com.company.reconciliation.transaction.repository.TransactionRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import jakarta.persistence.EntityNotFoundException;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -135,7 +136,7 @@ public class TransactionServiceImpl implements TransactionService {
 
         Transaction transaction = transactionRepository
                 .findById(transactionId)
-                .orElseThrow(() -> new IllegalArgumentException(
+                .orElseThrow(() -> new EntityNotFoundException(
                         "Transaction not found with ID: " + transactionId
                 ));
 

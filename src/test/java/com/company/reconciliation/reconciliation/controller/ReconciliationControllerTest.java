@@ -1,7 +1,11 @@
-
 package com.company.reconciliation.reconciliation.controller;
 
+import com.company.reconciliation.reconciliation.dto.request.ReconciliationCreateRequest;
+import com.company.reconciliation.reconciliation.dto.response.ReconciliationErrorResponse;
+import com.company.reconciliation.reconciliation.dto.response.ReconciliationResponse;
+import com.company.reconciliation.reconciliation.dto.response.ReconciliationResultResponse;
 import com.company.reconciliation.reconciliation.engine.ReconciliationEngineResult;
+import com.company.reconciliation.reconciliation.service.ReconciliationManagementService;
 import com.company.reconciliation.reconciliation.service.ReconciliationService;
 import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.Test;
@@ -24,49 +28,156 @@ class ReconciliationControllerTest {
     @Mock
     private ReconciliationService reconciliationService;
 
+    @Mock
+    private ReconciliationManagementService managementService;
+
     @InjectMocks
     private ReconciliationController reconciliationController;
 
     @Test
-    void runReconciliation_shouldReturnOkResponse() {
+    void createReconciliation_shouldReturnCreatedResponse() {
+        ReconciliationCreateRequest request =
+                mock(ReconciliationCreateRequest.class);
+        ReconciliationResponse expected =
+                mock(ReconciliationResponse.class);
 
-        Long reconciliationId = 1L;
+        when(managementService.createReconciliation(request))
+                .thenReturn(expected);
 
-        ReconciliationEngineResult result =
-                new ReconciliationEngineResult(
-                        List.of(),
-                        List.of()
-                );
+        ResponseEntity<ReconciliationResponse> response =
+                reconciliationController.createReconciliation(request);
 
-        when(reconciliationService.reconcile(reconciliationId))
-                .thenReturn(result);
+        assertEquals(HttpStatus.CREATED, response.getStatusCode());
+        assertSame(expected, response.getBody());
+        verify(managementService).createReconciliation(request);
+    }
 
-        ResponseEntity<ReconciliationEngineResult> response =
-                reconciliationController.runReconciliation(reconciliationId);
+    @Test
+    void getAllReconciliations_shouldReturnOkResponse() {
+        List<ReconciliationResponse> expected =
+                List.of(mock(ReconciliationResponse.class));
+
+        when(managementService.getAllReconciliations())
+                .thenReturn(expected);
+
+        ResponseEntity<List<ReconciliationResponse>> response =
+                reconciliationController.getAllReconciliations();
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertSame(result, response.getBody());
+        assertSame(expected, response.getBody());
+        verify(managementService).getAllReconciliations();
+    }
 
+    @Test
+    void getReconciliationById_shouldReturnOkResponse() {
+        Long reconciliationId = 1L;
+        ReconciliationResponse expected =
+                mock(ReconciliationResponse.class);
+
+        when(managementService.getReconciliationById(reconciliationId))
+                .thenReturn(expected);
+
+        ResponseEntity<ReconciliationResponse> response =
+                reconciliationController.getReconciliationById(
+                        reconciliationId);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertSame(expected, response.getBody());
+        verify(managementService).getReconciliationById(reconciliationId);
+    }
+
+    @Test
+    void runReconciliation_shouldReturnOkResponse() {
+        Long reconciliationId = 1L;
+        ReconciliationEngineResult expected =
+                new ReconciliationEngineResult(List.of(), List.of());
+
+        when(reconciliationService.reconcile(reconciliationId))
+                .thenReturn(expected);
+
+        ResponseEntity<ReconciliationEngineResult> response =
+                reconciliationController.runReconciliation(
+                        reconciliationId);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertSame(expected, response.getBody());
         verify(reconciliationService).reconcile(reconciliationId);
     }
 
     @Test
     void runReconciliation_shouldReturnNotFoundWhenMissing() {
-
         Long reconciliationId = 999L;
 
         when(reconciliationService.reconcile(reconciliationId))
                 .thenThrow(new EntityNotFoundException(
-                        "Reconciliation not found: " + reconciliationId
-                ));
+                        "Reconciliation not found: " + reconciliationId));
 
         ResponseStatusException exception = assertThrows(
                 ResponseStatusException.class,
-                () -> reconciliationController.runReconciliation(reconciliationId)
-        );
+                () -> reconciliationController.runReconciliation(
+                        reconciliationId));
 
-        assertEquals(404, exception.getStatusCode().value());
+        assertEquals(HttpStatus.NOT_FOUND.value(),
+                exception.getStatusCode().value());
 
         verify(reconciliationService).reconcile(reconciliationId);
+    }
+
+    @Test
+    void getReconciliationResults_shouldReturnOkResponse() {
+        Long reconciliationId = 1L;
+        List<ReconciliationResultResponse> expected =
+                List.of(mock(ReconciliationResultResponse.class));
+
+        when(reconciliationService.getResultsByReconciliation(
+                reconciliationId)).thenReturn(expected);
+
+        ResponseEntity<List<ReconciliationResultResponse>> response =
+                reconciliationController.getReconciliationResults(
+                        reconciliationId);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertSame(expected, response.getBody());
+        verify(reconciliationService)
+                .getResultsByReconciliation(reconciliationId);
+    }
+
+    @Test
+    void getReconciliationErrors_shouldReturnOkResponse() {
+        Long reconciliationId = 1L;
+        String status = "OPEN";
+
+        List<ReconciliationErrorResponse> expected =
+                List.of(mock(ReconciliationErrorResponse.class));
+
+        when(reconciliationService.getErrorsByReconciliation(
+                reconciliationId, status)).thenReturn(expected);
+
+        ResponseEntity<List<ReconciliationErrorResponse>> response =
+                reconciliationController.getReconciliationErrors(
+                        reconciliationId, status);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertSame(expected, response.getBody());
+        verify(reconciliationService)
+                .getErrorsByReconciliation(reconciliationId, status);
+    }
+
+    @Test
+    void getReconciliationErrors_withoutStatus_shouldPassNullStatus() {
+        Long reconciliationId = 1L;
+        List<ReconciliationErrorResponse> expected = List.of();
+
+        when(reconciliationService.getErrorsByReconciliation(
+                reconciliationId, null)).thenReturn(expected);
+
+        ResponseEntity<List<ReconciliationErrorResponse>> response =
+                reconciliationController.getReconciliationErrors(
+                        reconciliationId, null);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertSame(expected, response.getBody());
+        verify(reconciliationService)
+                .getErrorsByReconciliation(reconciliationId, null);
     }
 }
