@@ -1,20 +1,20 @@
 
 package com.company.reconciliation.reconciliation.service;
 
+import com.company.reconciliation.audit.service.AuditService;
 import com.company.reconciliation.reconciliation.engine.*;
 import com.company.reconciliation.reconciliation.entity.Reconciliation;
-import com.company.reconciliation.reconciliation.result.ReconciliationResult;
-import com.company.reconciliation.reconciliation.result.repository.ReconciliationResultRepository;
 import com.company.reconciliation.reconciliation.error.ReconciliationError;
 import com.company.reconciliation.reconciliation.error.repository.ReconciliationErrorRepository;
 import com.company.reconciliation.reconciliation.repository.ReconciliationRepository;
+import com.company.reconciliation.reconciliation.result.ReconciliationResult;
+import com.company.reconciliation.reconciliation.result.repository.ReconciliationResultRepository;
+import com.company.reconciliation.reconciliation.dto.response.ReconciliationErrorResponse;
+import com.company.reconciliation.reconciliation.dto.response.ReconciliationResultResponse;
 import com.company.reconciliation.transaction.entity.Transaction;
 import com.company.reconciliation.transaction.repository.TransactionRepository;
-import com.company.reconciliation.reconciliation.dto.response.ReconciliationResultResponse;
-import com.company.reconciliation.reconciliation.dto.response.ReconciliationErrorResponse;
-
+import com.company.reconciliation.user.entity.User;
 import jakarta.persistence.EntityNotFoundException;
-
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,21 +33,25 @@ public class ReconciliationService {
     private final ReconciliationResultRepository reconciliationResultRepository;
     private final ReconciliationErrorRepository reconciliationErrorRepository;
     private final ReconciliationEngine reconciliationEngine;
+    private final AuditService auditService;
 
     public ReconciliationService(
             ReconciliationRepository reconciliationRepository,
             TransactionRepository transactionRepository,
             ReconciliationResultRepository reconciliationResultRepository,
             ReconciliationErrorRepository reconciliationErrorRepository,
-            ReconciliationEngine reconciliationEngine) {
+            ReconciliationEngine reconciliationEngine,
+            AuditService auditService) {
 
         this.reconciliationRepository = reconciliationRepository;
         this.transactionRepository = transactionRepository;
         this.reconciliationResultRepository = reconciliationResultRepository;
         this.reconciliationErrorRepository = reconciliationErrorRepository;
         this.reconciliationEngine = reconciliationEngine;
+        this.auditService = auditService;
     }
 
+    // 1. Execute or rerun reconciliation
     @Transactional
     public ReconciliationEngineResult reconcile(Long reconciliationId) {
 
@@ -61,6 +65,10 @@ public class ReconciliationService {
                 .orElseThrow(() -> new EntityNotFoundException(
                         "Reconciliation not found: " + reconciliationId
                 ));
+
+        // Capture the previous state before processing.
+        String previousStatus = reconciliation.getStatus();
+        boolean isRerun = reconciliation.getStartedAt() != null;
 
         LocalDateTime startedAt = LocalDateTime.now();
 
@@ -82,12 +90,14 @@ public class ReconciliationService {
                 ));
 
         List<NormalizedTransaction> mInTransactions = transactions.stream()
-                .filter(transaction -> "M_IN".equals(transaction.getSourceSheet()))
+                .filter(transaction ->
+                        "M_IN".equals(transaction.getSourceSheet()))
                 .map(this::normalize)
                 .toList();
 
         List<NormalizedTransaction> mOutTransactions = transactions.stream()
-                .filter(transaction -> "M_OUT".equals(transaction.getSourceSheet()))
+                .filter(transaction ->
+                        "M_OUT".equals(transaction.getSourceSheet()))
                 .map(this::normalize)
                 .toList();
 
@@ -104,24 +114,54 @@ public class ReconciliationService {
         }
 
         ReconciliationEngineResult result =
-                reconciliationEngine.reconcile(mInTransactions, mOutTransactions);
+                reconciliationEngine.reconcile(
+                        mInTransactions,
+                        mOutTransactions
+                );
 
         saveMatches(reconciliation, result.matches(), transactionMap);
         saveIssues(reconciliation, result.issues(), transactionMap);
 
         ReconciliationSummary summary = result.summary();
 
-        reconciliation.setStatus(summary.status().name());
+        String finalStatus = summary.status().name();
+
+        reconciliation.setStatus(finalStatus);
         reconciliation.setCompletedAt(LocalDateTime.now());
         reconciliation.setUpdatedAt(LocalDateTime.now());
 
         reconciliationRepository.save(reconciliation);
 
+        // Record audit only after successful reconciliation processing.
+        User createdBy = reconciliation.getCreatedBy();
+
+        if (createdBy == null || createdBy.getId() == null) {
+            throw new IllegalStateException(
+                    "Reconciliation creator is required for audit logging"
+            );
+        }
+
+        auditService.recordAction(
+                createdBy.getId(),
+                reconciliation.getId(),
+                null,
+                isRerun
+                        ? "RECONCILIATION_RERUN"
+                        : "RECONCILIATION_EXECUTED",
+                "status",
+                previousStatus,
+                finalStatus,
+                isRerun
+                        ? "Reconciliation rerun completed"
+                        : "Reconciliation execution completed",
+                null
+        );
+
         return result;
     }
 
-    // Retrieve all results for a reconciliation
-    @Transactional
+    // 2. Retrieve all results for a reconciliation
+    @Transactional(readOnly = true)
     public List<ReconciliationResultResponse> getResultsByReconciliation(
             Long reconciliationId) {
 
@@ -134,9 +174,9 @@ public class ReconciliationService {
                 .toList();
     }
 
-    // Retrieve all errors for a reconciliation,
+    // 3. Retrieve all errors for a reconciliation,
     // optionally filtered by status
-    @Transactional
+    @Transactional(readOnly = true)
     public List<ReconciliationErrorResponse> getErrorsByReconciliation(
             Long reconciliationId,
             String status) {
@@ -163,8 +203,8 @@ public class ReconciliationService {
                 .toList();
     }
 
-    // Retrieve one error by ID
-    @Transactional
+    // 4. Retrieve one error by ID
+    @Transactional(readOnly = true)
     public ReconciliationErrorResponse getErrorById(Long errorId) {
 
         if (errorId == null || errorId <= 0) {
@@ -182,7 +222,7 @@ public class ReconciliationService {
         return mapToErrorResponse(error);
     }
 
-    // Resolve an open reconciliation error
+    // 5. Resolve an open reconciliation error and audit the action
     @Transactional
     public ReconciliationErrorResponse resolveError(Long errorId) {
 
@@ -198,13 +238,15 @@ public class ReconciliationService {
                         "Reconciliation error not found with ID: " + errorId
                 ));
 
-        if ("RESOLVED".equalsIgnoreCase(error.getStatus())) {
+        String previousStatus = error.getStatus();
+
+        if ("RESOLVED".equalsIgnoreCase(previousStatus)) {
             throw new IllegalStateException(
                     "This error has already been resolved."
             );
         }
 
-        if (!"OPEN".equalsIgnoreCase(error.getStatus())) {
+        if (!"OPEN".equalsIgnoreCase(previousStatus)) {
             throw new IllegalStateException(
                     "Only OPEN errors can be resolved."
             );
@@ -216,10 +258,34 @@ public class ReconciliationService {
         ReconciliationError savedError =
                 reconciliationErrorRepository.save(error);
 
+        Reconciliation reconciliation = savedError
+                .getReconciliationResult()
+                .getReconciliation();
+
+        User createdBy = reconciliation.getCreatedBy();
+
+        if (createdBy == null || createdBy.getId() == null) {
+            throw new IllegalStateException(
+                    "Reconciliation creator is required for audit logging"
+            );
+        }
+
+        auditService.recordAction(
+                createdBy.getId(),
+                reconciliation.getId(),
+                null,
+                "ERROR_RESOLVED",
+                "status",
+                previousStatus,
+                "RESOLVED",
+                "Reconciliation error resolved",
+                null
+        );
+
         return mapToErrorResponse(savedError);
     }
 
-    // Validate reconciliation exists
+    // 6. Validate reconciliation exists
     private void validateReconciliationExists(Long reconciliationId) {
 
         if (reconciliationId == null || reconciliationId <= 0) {
@@ -235,7 +301,7 @@ public class ReconciliationService {
         }
     }
 
-    // Map result entity to response DTO
+    // 7. Map result entity to response DTO
     private ReconciliationResultResponse mapToResultResponse(
             ReconciliationResult result) {
 
@@ -267,7 +333,7 @@ public class ReconciliationService {
         return response;
     }
 
-    // Map error entity to response DTO
+    // 8. Map error entity to response DTO
     private ReconciliationErrorResponse mapToErrorResponse(
             ReconciliationError error) {
 
@@ -296,6 +362,7 @@ public class ReconciliationService {
         return response;
     }
 
+    // 9. Normalize transaction for the reconciliation engine
     private NormalizedTransaction normalize(Transaction transaction) {
         return new NormalizedTransaction(
                 transaction.getId(),
@@ -307,6 +374,7 @@ public class ReconciliationService {
         );
     }
 
+    // 10. Persist matched transaction results
     private void saveMatches(
             Reconciliation reconciliation,
             List<ReconciliationMatch> matches,
@@ -319,11 +387,15 @@ public class ReconciliationService {
 
             reconciliationResult.setReconciliation(reconciliation);
             reconciliationResult.setmInTransaction(
-                    transactionMap.get(match.mInTransaction().transactionId())
+                    transactionMap.get(
+                            match.mInTransaction().transactionId()
+                    )
             );
 
             reconciliationResult.setmOutTransaction(
-                    transactionMap.get(match.mOutTransaction().transactionId())
+                    transactionMap.get(
+                            match.mOutTransaction().transactionId()
+                    )
             );
 
             reconciliationResult.setMatchStatus("MATCHED");
@@ -335,6 +407,7 @@ public class ReconciliationService {
         }
     }
 
+    // 11. Persist reconciliation issues and linked errors
     private void saveIssues(
             Reconciliation reconciliation,
             List<ReconciliationIssue> issues,
@@ -351,13 +424,17 @@ public class ReconciliationService {
             reconciliationResult.setmInTransaction(
                     issue.mInTransaction() == null
                             ? null
-                            : transactionMap.get(issue.mInTransaction().transactionId())
+                            : transactionMap.get(
+                            issue.mInTransaction().transactionId()
+                    )
             );
 
             reconciliationResult.setmOutTransaction(
                     issue.mOutTransaction() == null
                             ? null
-                            : transactionMap.get(issue.mOutTransaction().transactionId())
+                            : transactionMap.get(
+                            issue.mOutTransaction().transactionId()
+                    )
             );
 
             reconciliationResult.setMatchStatus("ISSUE");
@@ -366,7 +443,9 @@ public class ReconciliationService {
             reconciliationResult.setCreatedAt(LocalDateTime.now());
 
             ReconciliationResult savedResult =
-                    reconciliationResultRepository.save(reconciliationResult);
+                    reconciliationResultRepository.save(
+                            reconciliationResult
+                    );
 
             ReconciliationError reconciliationError =
                     new ReconciliationError();

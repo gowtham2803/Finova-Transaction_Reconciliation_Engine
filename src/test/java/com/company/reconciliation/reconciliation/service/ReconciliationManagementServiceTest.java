@@ -1,5 +1,7 @@
+
 package com.company.reconciliation.reconciliation.service;
 
+import com.company.reconciliation.audit.service.AuditService;
 import com.company.reconciliation.reconciliation.dto.request.ReconciliationCreateRequest;
 import com.company.reconciliation.reconciliation.dto.response.ReconciliationResponse;
 import com.company.reconciliation.reconciliation.entity.Reconciliation;
@@ -18,7 +20,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -29,6 +31,9 @@ class ReconciliationManagementServiceTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private AuditService auditService;
 
     @InjectMocks
     private ReconciliationManagementService managementService;
@@ -78,6 +83,19 @@ class ReconciliationManagementServiceTest {
         assertNotNull(saved.getUpdatedAt());
         assertNull(saved.getStartedAt());
         assertNull(saved.getCompletedAt());
+
+        // Verify that the reconciliation creation was audited
+        verify(auditService).recordAction(
+                eq(1L),
+                eq(10L),
+                isNull(),
+                eq("RECONCILIATION_CREATED"),
+                eq("status"),
+                isNull(),
+                eq("PENDING"),
+                eq("Reconciliation created"),
+                isNull()
+        );
     }
 
     @Test
@@ -97,6 +115,9 @@ class ReconciliationManagementServiceTest {
 
         verify(reconciliationRepository, never())
                 .save(any(Reconciliation.class));
+
+        // Verify that no audit event was recorded
+        verifyNoInteractions(auditService);
     }
 
     @Test

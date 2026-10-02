@@ -1,6 +1,7 @@
 
 package com.company.reconciliation.transaction.service;
 
+import com.company.reconciliation.audit.service.AuditService;
 import com.company.reconciliation.branch.entity.Branch;
 import com.company.reconciliation.branch.repository.BranchRepository;
 import com.company.reconciliation.reconciliation.entity.Reconciliation;
@@ -11,9 +12,9 @@ import com.company.reconciliation.transaction.dto.TransactionResponse;
 import com.company.reconciliation.transaction.dto.TransactionUpdateRequest;
 import com.company.reconciliation.transaction.entity.Transaction;
 import com.company.reconciliation.transaction.repository.TransactionRepository;
+import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import jakarta.persistence.EntityNotFoundException;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -28,15 +29,18 @@ public class TransactionServiceImpl implements TransactionService {
     private final TransactionRepository transactionRepository;
     private final BranchRepository branchRepository;
     private final ReconciliationRepository reconciliationRepository;
+    private final AuditService auditService;
 
     public TransactionServiceImpl(
             TransactionRepository transactionRepository,
             BranchRepository branchRepository,
-            ReconciliationRepository reconciliationRepository
+            ReconciliationRepository reconciliationRepository,
+            AuditService auditService
     ) {
         this.transactionRepository = transactionRepository;
         this.branchRepository = branchRepository;
         this.reconciliationRepository = reconciliationRepository;
+        this.auditService = auditService;
     }
 
     // 1. Create a single transaction
@@ -94,6 +98,30 @@ public class TransactionServiceImpl implements TransactionService {
         Transaction savedTransaction =
                 transactionRepository.save(transaction);
 
+        // Use the reconciliation creator as the audit user
+        Long actorUserId = reconciliation.getCreatedBy().getId();
+
+        // Record transaction creation
+        auditService.recordAction(
+                actorUserId,
+                reconciliation.getId(),
+                savedTransaction.getId(),
+                "TRANSACTION_CREATED",
+                "transaction",
+                null,
+                "sourceSheet=" + savedTransaction.getSourceSheet()
+                        + ", fromBranchId="
+                        + savedTransaction.getFromBranch().getId()
+                        + ", toBranchId="
+                        + savedTransaction.getToBranch().getId()
+                        + ", amount="
+                        + savedTransaction.getAmount().toPlainString()
+                        + ", commission="
+                        + savedTransaction.getCommission().toPlainString(),
+                "Transaction created",
+                null
+        );
+
         return mapToResponse(savedTransaction);
     }
 
@@ -118,6 +146,7 @@ public class TransactionServiceImpl implements TransactionService {
                 );
             }
 
+            // Each transaction is created and audited
             responses.add(createTransaction(request));
         }
 
@@ -206,6 +235,20 @@ public class TransactionServiceImpl implements TransactionService {
                                 + request.getToBranchId()
                 ));
 
+        // Capture old values before updating the transaction
+        Long oldFromBranchId = transaction.getFromBranch().getId();
+        Long oldToBranchId = transaction.getToBranch().getId();
+
+        BigDecimal oldAmount = transaction.getAmount();
+        BigDecimal oldCommission = transaction.getCommission();
+
+        Integer oldVersion = transaction.getVersion();
+
+        // Use the reconciliation creator as the audit user
+        Long actorUserId =
+                transaction.getReconciliation().getCreatedBy().getId();
+
+        // Update transaction fields
         transaction.setFromBranch(fromBranch);
         transaction.setToBranch(toBranch);
         transaction.setAmount(request.getAmount());
@@ -220,6 +263,47 @@ public class TransactionServiceImpl implements TransactionService {
 
         Transaction updatedTransaction =
                 transactionRepository.save(transaction);
+
+        // Record changes to individual fields
+        recordFieldChange(
+                updatedTransaction,
+                actorUserId,
+                "from_branch_id",
+                String.valueOf(oldFromBranchId),
+                String.valueOf(updatedTransaction.getFromBranch().getId())
+        );
+
+        recordFieldChange(
+                updatedTransaction,
+                actorUserId,
+                "to_branch_id",
+                String.valueOf(oldToBranchId),
+                String.valueOf(updatedTransaction.getToBranch().getId())
+        );
+
+        recordFieldChange(
+                updatedTransaction,
+                actorUserId,
+                "amount",
+                oldAmount.toPlainString(),
+                updatedTransaction.getAmount().toPlainString()
+        );
+
+        recordFieldChange(
+                updatedTransaction,
+                actorUserId,
+                "commission",
+                oldCommission.toPlainString(),
+                updatedTransaction.getCommission().toPlainString()
+        );
+
+        recordFieldChange(
+                updatedTransaction,
+                actorUserId,
+                "version",
+                String.valueOf(oldVersion),
+                String.valueOf(updatedTransaction.getVersion())
+        );
 
         return mapToResponse(updatedTransaction);
     }
@@ -281,7 +365,7 @@ public class TransactionServiceImpl implements TransactionService {
                 .toList();
     }
 
-    // Convert entity to response DTO
+    // 7. Convert entity to response DTO
     private TransactionResponse mapToResponse(Transaction transaction) {
         TransactionResponse response = new TransactionResponse();
 
@@ -321,5 +405,30 @@ public class TransactionServiceImpl implements TransactionService {
         response.setUpdatedAt(transaction.getUpdatedAt());
 
         return response;
+    }
+
+    // 8. Record an audit event only when a field has changed
+    private void recordFieldChange(
+            Transaction transaction,
+            Long actorUserId,
+            String fieldName,
+            String oldValue,
+            String newValue
+    ) {
+        if (Objects.equals(oldValue, newValue)) {
+            return;
+        }
+
+        auditService.recordAction(
+                actorUserId,
+                transaction.getReconciliation().getId(),
+                transaction.getId(),
+                "TRANSACTION_UPDATED",
+                fieldName,
+                oldValue,
+                newValue,
+                "Transaction updated",
+                null
+        );
     }
 }

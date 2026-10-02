@@ -1,6 +1,7 @@
 
 package com.company.reconciliation.transaction.service;
 
+import com.company.reconciliation.audit.service.AuditService;
 import com.company.reconciliation.branch.entity.Branch;
 import com.company.reconciliation.branch.repository.BranchRepository;
 import com.company.reconciliation.reconciliation.entity.Reconciliation;
@@ -9,6 +10,7 @@ import com.company.reconciliation.transaction.dto.TransactionCreateRequest;
 import com.company.reconciliation.transaction.dto.TransactionResponse;
 import com.company.reconciliation.transaction.entity.Transaction;
 import com.company.reconciliation.transaction.repository.TransactionRepository;
+import com.company.reconciliation.user.entity.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,16 +38,25 @@ class TransactionServiceTest {
     @Mock
     private ReconciliationRepository reconciliationRepository;
 
+    @Mock
+    private AuditService auditService;
+
     @InjectMocks
     private TransactionServiceImpl transactionService;
 
     private Reconciliation reconciliation;
     private Branch fromBranch;
     private Branch toBranch;
+    private User user;
 
     @BeforeEach
     void setUp() {
+        user = new User();
+        user.setId(1L);
+
         reconciliation = new Reconciliation();
+        reconciliation.setId(10L);
+        reconciliation.setCreatedBy(user);
 
         fromBranch = new Branch();
         fromBranch.setCode("CHN");
@@ -85,6 +96,19 @@ class TransactionServiceTest {
 
         verify(transactionRepository, times(1))
                 .save(any(Transaction.class));
+
+        verify(auditService, times(1))
+                .recordAction(
+                        eq(user.getId()),
+                        eq(reconciliation.getId()),
+                        any(),
+                        eq("TRANSACTION_CREATED"),
+                        eq("transaction"),
+                        isNull(),
+                        anyString(),
+                        eq("Transaction created"),
+                        isNull()
+                );
     }
 
     @Test
@@ -102,6 +126,8 @@ class TransactionServiceTest {
 
         verify(transactionRepository, never())
                 .save(any(Transaction.class));
+
+        verifyNoInteractions(auditService);
     }
 
     @Test
@@ -134,6 +160,19 @@ class TransactionServiceTest {
 
         verify(transactionRepository, times(2))
                 .save(any(Transaction.class));
+
+        verify(auditService, times(2))
+                .recordAction(
+                        eq(user.getId()),
+                        eq(reconciliation.getId()),
+                        any(),
+                        eq("TRANSACTION_CREATED"),
+                        eq("transaction"),
+                        isNull(),
+                        anyString(),
+                        eq("Transaction created"),
+                        isNull()
+                );
     }
 
     @Test
@@ -145,6 +184,8 @@ class TransactionServiceTest {
 
         verify(transactionRepository, never())
                 .save(any(Transaction.class));
+
+        verifyNoInteractions(auditService);
     }
 
     private TransactionCreateRequest createRequest() {

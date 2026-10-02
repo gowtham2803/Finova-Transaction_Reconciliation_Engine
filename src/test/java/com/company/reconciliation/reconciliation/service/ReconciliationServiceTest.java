@@ -1,6 +1,9 @@
+
 package com.company.reconciliation.reconciliation.service;
 
+import com.company.reconciliation.audit.service.AuditService;
 import com.company.reconciliation.branch.entity.Branch;
+import com.company.reconciliation.reconciliation.dto.response.ReconciliationErrorResponse;
 import com.company.reconciliation.reconciliation.engine.MatchingKey;
 import com.company.reconciliation.reconciliation.engine.NormalizedTransaction;
 import com.company.reconciliation.reconciliation.engine.ReconciliationEngine;
@@ -16,6 +19,7 @@ import com.company.reconciliation.reconciliation.result.ReconciliationResult;
 import com.company.reconciliation.reconciliation.result.repository.ReconciliationResultRepository;
 import com.company.reconciliation.transaction.entity.Transaction;
 import com.company.reconciliation.transaction.repository.TransactionRepository;
+import com.company.reconciliation.user.entity.User;
 import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,12 +29,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -51,6 +57,9 @@ class ReconciliationServiceTest {
     @Mock
     private ReconciliationEngine reconciliationEngine;
 
+    @Mock
+    private AuditService auditService;
+
     @InjectMocks
     private ReconciliationService reconciliationService;
 
@@ -60,6 +69,13 @@ class ReconciliationServiceTest {
         Long reconciliationId = 1L;
 
         Reconciliation reconciliation = mock(Reconciliation.class);
+        User user = mock(User.class);
+
+        when(reconciliation.getId()).thenReturn(reconciliationId);
+        when(user.getId()).thenReturn(1L);
+        when(reconciliation.getCreatedBy()).thenReturn(user);
+        when(reconciliation.getStatus()).thenReturn("PENDING");
+        when(reconciliation.getStartedAt()).thenReturn(null);
 
         when(reconciliationRepository.findById(reconciliationId))
                 .thenReturn(Optional.of(reconciliation));
@@ -138,6 +154,18 @@ class ReconciliationServiceTest {
 
         assertEquals(1, result.matchedCount());
         assertEquals(0, result.issueCount());
+
+        verify(auditService).recordAction(
+                eq(1L),
+                eq(reconciliationId),
+                eq((Long) null),
+                eq("RECONCILIATION_EXECUTED"),
+                eq("status"),
+                eq("PENDING"),
+                eq("RECONCILED"),
+                eq("Reconciliation execution completed"),
+                eq((String) null)
+        );
     }
 
     @Test
@@ -146,6 +174,13 @@ class ReconciliationServiceTest {
         Long reconciliationId = 2L;
 
         Reconciliation reconciliation = mock(Reconciliation.class);
+        User user = mock(User.class);
+
+        when(reconciliation.getId()).thenReturn(reconciliationId);
+        when(user.getId()).thenReturn(1L);
+        when(reconciliation.getCreatedBy()).thenReturn(user);
+        when(reconciliation.getStatus()).thenReturn("PENDING");
+        when(reconciliation.getStartedAt()).thenReturn(null);
 
         when(reconciliationRepository.findById(reconciliationId))
                 .thenReturn(Optional.of(reconciliation));
@@ -183,8 +218,9 @@ class ReconciliationServiceTest {
         when(reconciliationEngine.reconcile(anyList(), anyList()))
                 .thenReturn(engineResult);
 
-        when(reconciliationResultRepository.save(any(ReconciliationResult.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(reconciliationResultRepository.save(
+                any(ReconciliationResult.class)
+        )).thenAnswer(invocation -> invocation.getArgument(0));
 
         ReconciliationEngineResult result =
                 reconciliationService.reconcile(reconciliationId);
@@ -199,7 +235,10 @@ class ReconciliationServiceTest {
 
         assertEquals("ISSUE", savedResult.getMatchStatus());
         assertEquals("MISSING_M_OUT", savedResult.getErrorType());
-        assertEquals("M Out transaction is missing", savedResult.getErrorReason());
+        assertEquals(
+                "M Out transaction is missing",
+                savedResult.getErrorReason()
+        );
         assertSame(mIn, savedResult.getmInTransaction());
         assertNull(savedResult.getmOutTransaction());
 
@@ -214,7 +253,10 @@ class ReconciliationServiceTest {
         assertSame(savedResult, savedError.getReconciliationResult());
         assertEquals("MISSING_M_OUT", savedError.getErrorType());
         assertEquals("MISSING_M_OUT", savedError.getErrorCode());
-        assertEquals("M Out transaction is missing", savedError.getDescription());
+        assertEquals(
+                "M Out transaction is missing",
+                savedError.getDescription()
+        );
         assertEquals("OPEN", savedError.getStatus());
 
         verify(reconciliationRepository).save(reconciliation);
@@ -222,6 +264,65 @@ class ReconciliationServiceTest {
 
         assertEquals(0, result.matchedCount());
         assertEquals(1, result.issueCount());
+
+        verify(auditService).recordAction(
+                eq(1L),
+                eq(reconciliationId),
+                eq((Long) null),
+                eq("RECONCILIATION_EXECUTED"),
+                eq("status"),
+                eq("PENDING"),
+                eq("ISSUES_FOUND"),
+                eq("Reconciliation execution completed"),
+                eq((String) null)
+        );
+    }
+
+    @Test
+    void reconcile_shouldRecordRerunAudit() {
+
+        Long reconciliationId = 3L;
+
+        Reconciliation reconciliation = mock(Reconciliation.class);
+        User user = mock(User.class);
+
+        when(reconciliation.getId()).thenReturn(reconciliationId);
+        when(user.getId()).thenReturn(1L);
+        when(reconciliation.getCreatedBy()).thenReturn(user);
+        when(reconciliation.getStatus()).thenReturn("RECONCILED");
+        when(reconciliation.getStartedAt())
+                .thenReturn(LocalDateTime.now().minusMinutes(5));
+
+        when(reconciliationRepository.findById(reconciliationId))
+                .thenReturn(Optional.of(reconciliation));
+
+        when(transactionRepository.findByReconciliationId(reconciliationId))
+                .thenReturn(List.of());
+
+        ReconciliationEngineResult engineResult =
+                new ReconciliationEngineResult(
+                        List.of(),
+                        List.of()
+                );
+
+        when(reconciliationEngine.reconcile(anyList(), anyList()))
+                .thenReturn(engineResult);
+
+        reconciliationService.reconcile(reconciliationId);
+
+        verify(reconciliationRepository).save(reconciliation);
+
+        verify(auditService).recordAction(
+                eq(1L),
+                eq(reconciliationId),
+                eq((Long) null),
+                eq("RECONCILIATION_RERUN"),
+                eq("status"),
+                eq("RECONCILED"),
+                any(String.class),
+                eq("Reconciliation rerun completed"),
+                eq((String) null)
+        );
     }
 
     @Test
@@ -245,6 +346,54 @@ class ReconciliationServiceTest {
 
         verify(reconciliationErrorRepository, never())
                 .save(any());
+
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void resolveError_shouldRecordAudit() {
+
+        Long errorId = 50L;
+        Long reconciliationId = 5L;
+
+        ReconciliationError error = mock(ReconciliationError.class);
+        ReconciliationResult result = mock(ReconciliationResult.class);
+        Reconciliation reconciliation = mock(Reconciliation.class);
+        User user = mock(User.class);
+
+        when(user.getId()).thenReturn(1L);
+        when(reconciliation.getId()).thenReturn(reconciliationId);
+        when(reconciliation.getCreatedBy()).thenReturn(user);
+
+        when(result.getReconciliation()).thenReturn(reconciliation);
+        when(error.getReconciliationResult()).thenReturn(result);
+        when(error.getStatus()).thenReturn("OPEN");
+
+        when(reconciliationErrorRepository.findById(errorId))
+                .thenReturn(Optional.of(error));
+
+        when(reconciliationErrorRepository.save(error))
+                .thenReturn(error);
+
+        ReconciliationErrorResponse response =
+                reconciliationService.resolveError(errorId);
+
+        assertNotNull(response);
+
+        verify(error).setStatus("RESOLVED");
+        verify(reconciliationErrorRepository).save(error);
+
+        verify(auditService).recordAction(
+                eq(1L),
+                eq(reconciliationId),
+                eq((Long) null),
+                eq("ERROR_RESOLVED"),
+                eq("status"),
+                eq("OPEN"),
+                eq("RESOLVED"),
+                eq("Reconciliation error resolved"),
+                eq((String) null)
+        );
     }
 
     private Transaction createTransaction(

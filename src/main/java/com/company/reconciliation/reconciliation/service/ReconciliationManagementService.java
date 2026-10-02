@@ -9,6 +9,7 @@ import com.company.reconciliation.user.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.company.reconciliation.audit.service.AuditService;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -20,13 +21,16 @@ public class ReconciliationManagementService {
 
     private final ReconciliationRepository reconciliationRepository;
     private final UserRepository userRepository;
+    private final AuditService auditService;
 
     public ReconciliationManagementService(
             ReconciliationRepository reconciliationRepository,
-            UserRepository userRepository
+            UserRepository userRepository,
+            AuditService auditService
     ) {
         this.reconciliationRepository = reconciliationRepository;
         this.userRepository = userRepository;
+        this.auditService = auditService;
     }
 
     // 1. Create a reconciliation
@@ -61,6 +65,19 @@ public class ReconciliationManagementService {
 
         Reconciliation saved =
                 reconciliationRepository.save(reconciliation);
+
+        // Record reconciliation creation in the audit log
+        auditService.recordAction(
+                userId,
+                saved.getId(),
+                null,
+                "RECONCILIATION_CREATED",
+                "status",
+                null,
+                saved.getStatus(),
+                "Reconciliation created",
+                null
+        );
 
         return mapToResponse(saved);
     }
