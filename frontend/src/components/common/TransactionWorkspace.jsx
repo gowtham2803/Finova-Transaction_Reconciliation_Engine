@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, forwardRef, useImperativeHandle } from "react";
 import { useApp } from "../../context/AppContext";
 import {
     getBranches,
@@ -24,7 +24,10 @@ import {
     CheckSquare
 } from "lucide-react";
 
-export default function TransactionWorkspace({ reconciliationId, onReconciliationUpdated }) {
+const TransactionWorkspace = forwardRef(function TransactionWorkspace(
+    { reconciliationId, onReconciliationUpdated, refreshSignal },
+    ref
+) {
     const { addToast } = useApp();
 
     const [mInRows, setMInRows] = useState([]);
@@ -112,7 +115,7 @@ export default function TransactionWorkspace({ reconciliationId, onReconciliatio
 
     useEffect(() => {
         loadWorkspaceData();
-    }, [loadWorkspaceData]);
+    }, [loadWorkspaceData, refreshSignal]);
 
     function createBlankRow(sheet, index) {
         return {
@@ -337,35 +340,50 @@ export default function TransactionWorkspace({ reconciliationId, onReconciliatio
                     title: "Validation Incomplete",
                     message: validationErrors.slice(0, 3).join(" • ")
                 });
-                return;
+                return false;
             }
 
             const newRows = allRows.filter((r) => r.isNew);
             const updatedRows = allRows.filter((r) => !r.isNew && unsavedChanges.has(r.id));
 
-            await saveTransactions(reconciliationId, { newRows, updatedRows });
+            if (newRows.length > 0 || updatedRows.length > 0) {
+                await saveTransactions(reconciliationId, { newRows, updatedRows });
 
-            setUnsavedChanges(new Set());
-            addToast({
-                type: "success",
-                title: "Transactions Saved",
-                message: `Saved ${newRows.length + updatedRows.length} transaction record(s) to mock store.`
-            });
+                setUnsavedChanges(new Set());
+                addToast({
+                    type: "success",
+                    title: "Transactions Saved",
+                    message: `Saved ${newRows.length + updatedRows.length} transaction record(s) successfully.`
+                });
 
-            if (onReconciliationUpdated) {
-                onReconciliationUpdated();
+                if (onReconciliationUpdated) {
+                    onReconciliationUpdated();
+                }
+                await loadWorkspaceData();
             }
-            await loadWorkspaceData();
+            return true;
         } catch (err) {
             addToast({
                 type: "error",
                 title: "Save Failed",
                 message: err.message
             });
+            return false;
         } finally {
             setSaving(false);
         }
     };
+
+    useImperativeHandle(ref, () => ({
+        hasUnsavedChanges: () => unsavedChanges.size > 0,
+        savePendingChanges: async () => {
+            if (unsavedChanges.size === 0) return true;
+            return await handleSaveTransactions();
+        },
+        reloadWorkspace: async () => {
+            return await loadWorkspaceData();
+        }
+    }), [unsavedChanges, handleSaveTransactions, loadWorkspaceData]);
 
     // Filtered lists
     const filteredMIn = useMemo(() => {
@@ -853,7 +871,9 @@ export default function TransactionWorkspace({ reconciliationId, onReconciliatio
             />
         </div>
     );
-}
+});
+
+export default TransactionWorkspace;
 
 // =============================================================================
 // SUB-COMPONENT: SPREADSHEET TABLE (M In / M Out)

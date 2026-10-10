@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "../../context/AppContext";
-import { importTransactions } from "../../services/mockApi";
+import { importTransactions, getBranches } from "../../services/api";
+import { parseExcelWorkbook, formatFileSize } from "../../utils/excelParser";
 import { initialMockTransactions } from "../../mock/mockTransactions";
 import {
     UploadCloud,
@@ -31,39 +32,131 @@ export default function ImportExcelModal() {
     const [statusStage, setStatusStage] = useState("");
     const [previewData, setPreviewData] = useState(null);
     const [confirming, setConfirming] = useState(false);
+    const [isDragging, setIsDragging] = useState(false);
+    const [branches, setBranches] = useState([]);
+
+    const fileInputRef = useRef(null);
+
+    useEffect(() => {
+        if (isImportModalOpen) {
+            getBranches().then(setBranches).catch(() => {});
+        }
+    }, [isImportModalOpen]);
 
     if (!isImportModalOpen || !importReconciliationData) return null;
 
-    const handleSelectFile = (fileName = "transactions_october_batch.xlsx") => {
+    const handleBrowseClick = (e) => {
+        if (e) e.stopPropagation();
+        if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+            fileInputRef.current.click();
+        }
+    };
+
+    const handleFileInputChange = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            handleProcessRealFile(file);
+        }
+    };
+
+    const handleProcessRealFile = async (file) => {
+        if (!file) return;
+
+        // 1. Validate file format extension
+        const nameParts = file.name.split(".");
+        const ext = nameParts.length > 1 ? nameParts.pop().toLowerCase() : "";
+        const allowed = ["xlsx", "xls", "csv"];
+        if (!allowed.includes(ext)) {
+            addToast({
+                type: "error",
+                title: "Unsupported File Format",
+                message: `Please upload an Excel spreadsheet (.xlsx, .xls) or .csv file. Received: .${ext || "unknown"}`
+            });
+            return;
+        }
+
+        // 2. Validate empty file
+        if (file.size === 0) {
+            addToast({
+                type: "error",
+                title: "Empty File",
+                message: "The selected file is empty (0 bytes). Please choose a valid Excel workbook."
+            });
+            return;
+        }
+
         setFileState({
-            name: fileName,
+            name: file.name,
+            size: formatFileSize(file.size),
+            type: file.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        });
+
+        setUploading(true);
+        setUploadProgress(15);
+        setStatusStage(`Reading workbook sheets (${file.name})...`);
+
+        try {
+            await new Promise((r) => setTimeout(r, 200));
+            setUploadProgress(50);
+            setStatusStage("Parsing M_IN and M_OUT transaction rows...");
+
+            const branchList = branches.length > 0 ? branches : await getBranches().catch(() => []);
+            const parsed = await parseExcelWorkbook(file, branchList, importReconciliationData.id);
+
+            await new Promise((r) => setTimeout(r, 300));
+            setUploadProgress(85);
+            setStatusStage("Validating branch IDs and numeric amounts...");
+
+            await new Promise((r) => setTimeout(r, 250));
+            setUploadProgress(100);
+            setStatusStage("Validation complete. Ready for preview.");
+
+            await new Promise((r) => setTimeout(r, 150));
+            setUploading(false);
+            setPreviewData(parsed);
+
+            addToast({
+                type: "success",
+                title: "Excel File Loaded",
+                message: `Parsed ${parsed.totalRows} transactions from "${file.name}". Review preview below.`
+            });
+        } catch (err) {
+            setUploading(false);
+            resetImport();
+            addToast({
+                type: "error",
+                title: "Excel Parsing Error",
+                message: err.message || "Failed to parse transactions from selected Excel file."
+            });
+        }
+    };
+
+    const handleLoadSampleDataset = () => {
+        setFileState({
+            name: "tamil_nadu_hubs_october_settlement.xlsx",
             size: "142.8 KB",
             type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         });
-        simulateUpload();
-    };
-
-    const simulateUpload = () => {
         setUploading(true);
-        setUploadProgress(10);
-        setStatusStage("Reading workbook sheets (M_IN & M_OUT)...");
+        setUploadProgress(15);
+        setStatusStage("Reading demo workbook sheets (M_IN & M_OUT)...");
 
         setTimeout(() => {
-            setUploadProgress(45);
+            setUploadProgress(50);
             setStatusStage("Parsing 23 M_IN rows & 23 M_OUT rows...");
-        }, 350);
+        }, 250);
 
         setTimeout(() => {
-            setUploadProgress(80);
+            setUploadProgress(85);
             setStatusStage("Validating branch IDs and numeric amounts...");
-        }, 700);
+        }, 500);
 
         setTimeout(() => {
             setUploadProgress(100);
             setStatusStage("Validation complete. Ready for preview.");
             setUploading(false);
 
-            // Construct preview using rich realistic transactions
             const sampleTxns = initialMockTransactions.map((t) => ({
                 ...t,
                 reconciliationId: importReconciliationData.id
@@ -73,7 +166,7 @@ export default function ImportExcelModal() {
             const mOuts = sampleTxns.filter((t) => t.sourceSheet === "M_OUT");
 
             setPreviewData({
-                fileName: "transactions_october_batch.xlsx",
+                fileName: "tamil_nadu_hubs_october_settlement.xlsx",
                 totalRows: sampleTxns.length,
                 mInCount: mIns.length,
                 mOutCount: mOuts.length,
@@ -84,7 +177,7 @@ export default function ImportExcelModal() {
                 sampleMIns: mIns.slice(0, 4),
                 sampleMOuts: mOuts.slice(0, 4)
             });
-        }, 1050);
+        }, 800);
     };
 
     const handleConfirmImport = async () => {
@@ -122,6 +215,9 @@ export default function ImportExcelModal() {
         setPreviewData(null);
         setUploadProgress(0);
         setStatusStage("");
+        if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+        }
     };
 
     return (
@@ -132,6 +228,15 @@ export default function ImportExcelModal() {
                 role="dialog"
                 aria-modal="true"
             >
+                {/* Hidden Native File Input */}
+                <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileInputChange}
+                    accept=".xlsx, .xls, .csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, text/csv"
+                    style={{ display: "none" }}
+                />
+
                 <div className="modal-header">
                     <div>
                         <div className="modal-badge">
@@ -159,8 +264,27 @@ export default function ImportExcelModal() {
                         <div>
                             {/* Drag and Drop Zone */}
                             <div
-                                className="dropzone-area"
-                                onClick={() => handleSelectFile("transactions_october_batch.xlsx")}
+                                className={`dropzone-area ${isDragging ? "dropzone-dragging" : ""}`}
+                                onClick={handleBrowseClick}
+                                onDragOver={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setIsDragging(true);
+                                }}
+                                onDragLeave={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setIsDragging(false);
+                                }}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setIsDragging(false);
+                                    const droppedFile = e.dataTransfer.files?.[0];
+                                    if (droppedFile) {
+                                        handleProcessRealFile(droppedFile);
+                                    }
+                                }}
                             >
                                 <div className="dropzone-icon-wrap">
                                     <UploadCloud size={38} className="dropzone-icon" />
@@ -175,10 +299,7 @@ export default function ImportExcelModal() {
                                     <button
                                         type="button"
                                         className="secondary-button"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleSelectFile("transactions_october_batch.xlsx");
-                                        }}
+                                        onClick={handleBrowseClick}
                                     >
                                         <FileSpreadsheet size={16} />
                                         Browse File
@@ -202,7 +323,7 @@ export default function ImportExcelModal() {
                                 <button
                                     type="button"
                                     className="primary-button sample-btn"
-                                    onClick={() => handleSelectFile("tamil_nadu_hubs_october_settlement.xlsx")}
+                                    onClick={handleLoadSampleDataset}
                                 >
                                     Load Sample Excel
                                 </button>
@@ -236,7 +357,7 @@ export default function ImportExcelModal() {
                                         <FileCheck size={22} className="text-emerald-500" />
                                     </div>
                                     <div>
-                                        <div className="file-name">{fileState?.name || "transactions_october.xlsx"}</div>
+                                        <div className="file-name">{fileState?.name || previewData.fileName}</div>
                                         <div className="file-meta">
                                             {previewData.totalRows} total rows detected • Formatted for YesCapital
                                         </div>
@@ -294,8 +415,8 @@ export default function ImportExcelModal() {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {previewData.sampleMIns.map((row) => (
-                                                <tr key={row.id}>
+                                            {previewData.sampleMIns.map((row, idx) => (
+                                                <tr key={row.id || `min-${idx}`}>
                                                     <td>{row.toBranchName}</td>
                                                     <td>{row.fromBranchName}</td>
                                                     <td className="text-right">₹{Number(row.amount).toLocaleString("en-IN")}</td>
@@ -321,8 +442,8 @@ export default function ImportExcelModal() {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {previewData.sampleMOuts.map((row) => (
-                                                <tr key={row.id}>
+                                            {previewData.sampleMOuts.map((row, idx) => (
+                                                <tr key={row.id || `mout-${idx}`}>
                                                     <td>{row.fromBranchName}</td>
                                                     <td>{row.toBranchName}</td>
                                                     <td className="text-right">₹{Number(row.amount).toLocaleString("en-IN")}</td>

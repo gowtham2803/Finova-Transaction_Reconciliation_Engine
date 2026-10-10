@@ -112,14 +112,14 @@ export default function AppLayout() {
                     </div>
 
                     {/* User profile dropdown / login trigger */}
-                    {isAuthenticated ? (
+                    {isAuthenticated && currentUser ? (
                         <div className="user-profile-badge">
                             <div className="user-avatar-circle">
-                                {currentUser.initials}
+                                {currentUser.initials || "YC"}
                             </div>
                             <div className="user-text-meta">
-                                <span className="user-display-name">{currentUser.name}</span>
-                                <span className="user-role-label">{currentUser.role}</span>
+                                <span className="user-display-name">{currentUser.name || currentUser.fullName || currentUser.username}</span>
+                                <span className="user-role-label">{currentUser.role || "Financial Operations"}</span>
                             </div>
                             <button
                                 type="button"
@@ -177,15 +177,15 @@ export default function AppLayout() {
                         <div className="system-status-indicator">
                             <div className="status-pulse-dot"></div>
                             <div>
-                                <div className="system-status-mode">Prototype Mode</div>
-                                <div className="system-status-sub">In-Memory Mock Engine</div>
+                                <div className="system-status-mode">Enterprise Engine</div>
+                                <div className="system-status-sub">Spring Boot &amp; MySQL</div>
                             </div>
                         </div>
 
                         <div className="system-engine-details">
                             <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                                <Database size={12} className="text-blue-500" />
-                                <span>No Backend Required</span>
+                                <Database size={12} className="text-emerald-500" />
+                                <span>Port 8088 Connected</span>
                             </div>
                             <div className="text-[10px] text-slate-400 mt-1">
                                 YesCapital v2.4 Enterprise

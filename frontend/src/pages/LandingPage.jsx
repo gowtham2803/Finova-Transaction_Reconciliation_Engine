@@ -61,10 +61,10 @@ export default function LandingPage() {
                             <span>Go to Dashboard</span>
                         </button>
 
-                        {isAuthenticated ? (
+                        {isAuthenticated && currentUser ? (
                             <div className="landing-auth-pill">
                                 <span className="auth-pill-dot"></span>
-                                <span>{currentUser.name}</span>
+                                <span>{currentUser.name || currentUser.fullName || currentUser.username}</span>
                             </div>
                         ) : (
                             <button
@@ -90,10 +90,10 @@ export default function LandingPage() {
                     </div>
 
                     {/* Grand Hero Title */}
-                    <h1 className="landing-hero-title">
+                    <h3 className="landing-hero-title">
                         Reconcile financial transactions <br />
                         <span className="gradient-text">faster, smarter, and with confidence.</span>
-                    </h1>
+                    </h3>
 
                     {/* TWO PRIMARY VISUALLY PROMINENT ACTIONS (Required by prompt) */}
                     <div className="landing-primary-actions-grid">
@@ -110,7 +110,7 @@ export default function LandingPage() {
                                     Import Excel File
                                 </div>
                                 <div className="action-card-desc">
-                                    Upload existing workbook or test with pre-built Tamil Nadu South Zone batch
+                                    Upload existing workbook or test with pre-built file
                                 </div>
                             </div>
                             <div className="action-card-arrow">
@@ -131,7 +131,7 @@ export default function LandingPage() {
                                     Create New
                                 </div>
                                 <div className="action-card-desc">
-                                    Initialize an empty reconciliation batch and enter or paste transactions
+                                    Initialize reconciliation or paste transactions
                                 </div>
                             </div>
                             <div className="action-card-arrow">
@@ -146,11 +146,11 @@ export default function LandingPage() {
             <footer className="landing-footer">
                 <div className="landing-footer-inner">
                     <div className="text-xs text-slate-400">
-                        © 2026 <strong>YesCapital Financial Technologies</strong>. Transaction Reconciliation Management System.
+                        © 2026 <strong>YesCapital Financial Technologies</strong>.
                     </div>
                     <div className="flex items-center gap-2 text-xs text-slate-400">
                         <Database size={13} className="text-emerald-400" />
-                        <span>Interactive Prototype Mode • Zero Backend Dependency</span>
+                        <span>Transaction Reconciliation Management System.</span>
                     </div>
                 </div>
             </footer>

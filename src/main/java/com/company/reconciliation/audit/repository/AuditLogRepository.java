@@ -20,6 +20,12 @@ public interface AuditLogRepository
 
     List<AuditLog> findByTransactionId(Long transactionId);
 
+    boolean existsByReconciliationIdAndActionAndCreatedAtAfter(
+            Long reconciliationId,
+            String action,
+            LocalDateTime createdAt
+    );
+
     @Query("""
             SELECT a
             FROM AuditLog a

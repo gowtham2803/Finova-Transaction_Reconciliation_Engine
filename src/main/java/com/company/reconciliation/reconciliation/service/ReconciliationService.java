@@ -6,6 +6,8 @@ import com.company.reconciliation.reconciliation.engine.*;
 import com.company.reconciliation.reconciliation.entity.Reconciliation;
 import com.company.reconciliation.reconciliation.error.ReconciliationError;
 import com.company.reconciliation.reconciliation.error.repository.ReconciliationErrorRepository;
+import com.company.reconciliation.reconciliation.error.resolution.ErrorResolution;
+import com.company.reconciliation.reconciliation.error.resolution.repository.ErrorResolutionRepository;
 import com.company.reconciliation.reconciliation.repository.ReconciliationRepository;
 import com.company.reconciliation.reconciliation.result.ReconciliationResult;
 import com.company.reconciliation.reconciliation.result.repository.ReconciliationResultRepository;
@@ -32,6 +34,7 @@ public class ReconciliationService {
     private final TransactionRepository transactionRepository;
     private final ReconciliationResultRepository reconciliationResultRepository;
     private final ReconciliationErrorRepository reconciliationErrorRepository;
+    private final ErrorResolutionRepository errorResolutionRepository;
     private final ReconciliationEngine reconciliationEngine;
     private final AuditService auditService;
 
@@ -40,6 +43,7 @@ public class ReconciliationService {
             TransactionRepository transactionRepository,
             ReconciliationResultRepository reconciliationResultRepository,
             ReconciliationErrorRepository reconciliationErrorRepository,
+            ErrorResolutionRepository errorResolutionRepository,
             ReconciliationEngine reconciliationEngine,
             AuditService auditService) {
 
@@ -47,6 +51,7 @@ public class ReconciliationService {
         this.transactionRepository = transactionRepository;
         this.reconciliationResultRepository = reconciliationResultRepository;
         this.reconciliationErrorRepository = reconciliationErrorRepository;
+        this.errorResolutionRepository = errorResolutionRepository;
         this.reconciliationEngine = reconciliationEngine;
         this.auditService = auditService;
     }
@@ -113,11 +118,81 @@ public class ReconciliationService {
             );
         }
 
+        // Clear previous errors and results for this reconciliation to prevent stale duplicates on rerun
+        List<ReconciliationError> existingErrors =
+                reconciliationErrorRepository.findByReconciliationResultReconciliationId(reconciliationId);
+        if (!existingErrors.isEmpty()) {
+            for (ReconciliationError err : existingErrors) {
+                List<ErrorResolution> resolutions = errorResolutionRepository.findByErrorId(err.getId());
+                if (!resolutions.isEmpty()) {
+                    errorResolutionRepository.deleteAllInBatch(resolutions);
+                }
+            }
+            reconciliationErrorRepository.deleteAllInBatch(existingErrors);
+            reconciliationErrorRepository.flush();
+        }
+
+        List<ReconciliationResult> existingResults =
+                reconciliationResultRepository.findByReconciliationId(reconciliationId);
+        if (!existingResults.isEmpty()) {
+            reconciliationResultRepository.deleteAllInBatch(existingResults);
+            reconciliationResultRepository.flush();
+        }
+
         ReconciliationEngineResult result =
                 reconciliationEngine.reconcile(
                         mInTransactions,
                         mOutTransactions
                 );
+
+        // Update transaction statuses in database based on the latest reconciliation run
+        for (Transaction transaction : transactions) {
+            transaction.setStatus("PENDING");
+        }
+
+        for (ReconciliationMatch match : result.matches()) {
+            Transaction mIn = transactionMap.get(match.mInTransaction().transactionId());
+            if (mIn != null) {
+                mIn.setStatus("MATCHED");
+            }
+            Transaction mOut = transactionMap.get(match.mOutTransaction().transactionId());
+            if (mOut != null) {
+                mOut.setStatus("MATCHED");
+            }
+        }
+
+        for (ReconciliationIssue issue : result.issues()) {
+            if (issue.issueType() == ReconciliationIssueType.MISSING_M_IN) {
+                if (issue.mOutTransaction() != null) {
+                    Transaction mOut = transactionMap.get(issue.mOutTransaction().transactionId());
+                    if (mOut != null) {
+                        mOut.setStatus("UNMATCHED");
+                    }
+                }
+            } else if (issue.issueType() == ReconciliationIssueType.MISSING_M_OUT) {
+                if (issue.mInTransaction() != null) {
+                    Transaction mIn = transactionMap.get(issue.mInTransaction().transactionId());
+                    if (mIn != null) {
+                        mIn.setStatus("UNMATCHED");
+                    }
+                }
+            } else {
+                if (issue.mInTransaction() != null) {
+                    Transaction mIn = transactionMap.get(issue.mInTransaction().transactionId());
+                    if (mIn != null) {
+                        mIn.setStatus("ERROR");
+                    }
+                }
+                if (issue.mOutTransaction() != null) {
+                    Transaction mOut = transactionMap.get(issue.mOutTransaction().transactionId());
+                    if (mOut != null) {
+                        mOut.setStatus("ERROR");
+                    }
+                }
+            }
+        }
+
+        transactionRepository.saveAll(transactions);
 
         saveMatches(reconciliation, result.matches(), transactionMap);
         saveIssues(reconciliation, result.issues(), transactionMap);
@@ -127,6 +202,11 @@ public class ReconciliationService {
         String finalStatus = summary.status().name();
 
         reconciliation.setStatus(finalStatus);
+        if (isRerun && reconciliation.getVersion() != null) {
+            reconciliation.setVersion(reconciliation.getVersion() + 1);
+        } else if (reconciliation.getVersion() == null) {
+            reconciliation.setVersion(1);
+        }
         reconciliation.setCompletedAt(LocalDateTime.now());
         reconciliation.setUpdatedAt(LocalDateTime.now());
 

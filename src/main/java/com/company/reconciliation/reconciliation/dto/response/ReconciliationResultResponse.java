@@ -1,13 +1,19 @@
 package com.company.reconciliation.reconciliation.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.LocalDateTime;
 
 public class ReconciliationResultResponse {
 
     private Long id;
     private Long reconciliationId;
+
+    @JsonProperty("mInTransactionId")
     private Long mInTransactionId;
+
+    @JsonProperty("mOutTransactionId")
     private Long mOutTransactionId;
+
     private String matchStatus;
     private String errorType;
     private String errorReason;

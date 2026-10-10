@@ -142,39 +142,6 @@ export default function CreateReconciliationModal() {
 
                 <form onSubmit={handleSubmit} className="modal-form">
                     <div className="modal-body">
-                        {/* Quick suggestion chips */}
-                        <div className="preset-chips-section">
-                            <span className="preset-label">
-                                <Sparkles size={14} className="text-blue-500" />
-                                Quick Presets:
-                            </span>
-                            <div className="preset-chips">
-                                <button
-                                    type="button"
-                                    className="preset-chip"
-                                    onClick={() =>
-                                        applySampleName(
-                                            "October High-Value Clearing",
-                                            "Monthly inter-branch transaction reconciliation for Tamil Nadu hubs."
-                                        )
-                                    }
-                                >
-                                    October High-Value Clearing
-                                </button>
-                                <button
-                                    type="button"
-                                    className="preset-chip"
-                                    onClick={() =>
-                                        applySampleName(
-                                            "South Zone Liquidity Settlement",
-                                            "Intraday fund transfer settlement between Chennai and regional branches."
-                                        )
-                                    }
-                                >
-                                    South Zone Liquidity
-                                </button>
-                            </div>
-                        </div>
 
                         <div className="form-group">
                             <label className="form-label" htmlFor="rec-name">
@@ -256,20 +223,6 @@ export default function CreateReconciliationModal() {
                                     onChange={(e) => handleChange("description", e.target.value)}
                                 />
                             </div>
-                        </div>
-
-                        <div className="form-group">
-                            <label className="form-label" htmlFor="rec-notes">
-                                Optional Notes
-                            </label>
-                            <input
-                                id="rec-notes"
-                                type="text"
-                                className="form-input"
-                                placeholder="Additional ledger audit notes or special instructions..."
-                                value={formData.notes}
-                                onChange={(e) => handleChange("notes", e.target.value)}
-                            />
                         </div>
                     </div>
 

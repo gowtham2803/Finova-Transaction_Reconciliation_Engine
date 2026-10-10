@@ -56,6 +56,14 @@ public class AuditService {
             throw new IllegalArgumentException("Audit action is required");
         }
 
+        // Prevent duplicate audit logs caused by rapid repeat clicks or concurrent requests
+        if (reconciliationId != null && ("RECONCILIATION_RERUN".equals(action.trim()) || "RECONCILIATION_EXECUTED".equals(action.trim()))) {
+            LocalDateTime cutoff = LocalDateTime.now().minusSeconds(3);
+            if (auditLogRepository.existsByReconciliationIdAndActionAndCreatedAtAfter(reconciliationId, action.trim(), cutoff)) {
+                return null;
+            }
+        }
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new EntityNotFoundException(
                         "User not found with ID: " + userId

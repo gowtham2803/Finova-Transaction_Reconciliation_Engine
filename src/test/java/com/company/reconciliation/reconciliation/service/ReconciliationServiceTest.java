@@ -14,6 +14,7 @@ import com.company.reconciliation.reconciliation.engine.ReconciliationMatch;
 import com.company.reconciliation.reconciliation.entity.Reconciliation;
 import com.company.reconciliation.reconciliation.error.ReconciliationError;
 import com.company.reconciliation.reconciliation.error.repository.ReconciliationErrorRepository;
+import com.company.reconciliation.reconciliation.error.resolution.repository.ErrorResolutionRepository;
 import com.company.reconciliation.reconciliation.repository.ReconciliationRepository;
 import com.company.reconciliation.reconciliation.result.ReconciliationResult;
 import com.company.reconciliation.reconciliation.result.repository.ReconciliationResultRepository;
@@ -53,6 +54,9 @@ class ReconciliationServiceTest {
 
     @Mock
     private ReconciliationErrorRepository reconciliationErrorRepository;
+
+    @Mock
+    private ErrorResolutionRepository errorResolutionRepository;
 
     @Mock
     private ReconciliationEngine reconciliationEngine;

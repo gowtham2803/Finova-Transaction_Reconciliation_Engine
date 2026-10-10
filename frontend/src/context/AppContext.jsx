@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { apiLogin, apiRegister, apiGetCurrentUser } from "../services/api";
 
 const AppContext = createContext(null);
 
@@ -54,15 +55,63 @@ export function AppProvider({ children }) {
     const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
 
     // Current User Session
-    const [currentUser, setCurrentUser] = useState({
-        id: "finance_ops_lead",
-        name: "Karthik Subramanian",
-        role: "Financial Operations Lead",
-        email: "karthik.s@yescapital.com",
-        initials: "KS",
-        department: "South Zone Treasury"
+    const [currentUser, setCurrentUser] = useState(() => {
+        try {
+            const stored = localStorage.getItem("yescapital_auth_user");
+            if (stored) return JSON.parse(stored);
+        } catch {
+            // Ignore parse error
+        }
+        return null;
     });
-    const [isAuthenticated, setIsAuthenticated] = useState(true);
+
+    const [isAuthenticated, setIsAuthenticated] = useState(() => {
+        try {
+            return Boolean(localStorage.getItem("yescapital_auth_token"));
+        } catch {
+            return false;
+        }
+    });
+
+    // Verify and synchronize active user session with backend on mount
+    useEffect(() => {
+        let token = null;
+        try {
+            token = localStorage.getItem("yescapital_auth_token");
+        } catch {
+            // Ignore storage errors
+        }
+
+        if (token) {
+            apiGetCurrentUser()
+                .then((userData) => {
+                    if (userData) {
+                        const formatted = {
+                            ...userData,
+                            name: userData.fullName || userData.username
+                        };
+                        setCurrentUser(formatted);
+                        setIsAuthenticated(true);
+                        try {
+                            localStorage.setItem("yescapital_auth_user", JSON.stringify(formatted));
+                        } catch {
+                            // Ignore
+                        }
+                    }
+                })
+                .catch(() => {
+                    // Token invalid or expired
+                    try {
+                        localStorage.removeItem("yescapital_auth_token");
+                        localStorage.removeItem("yescapital_auth_user");
+                    } catch {
+                        // Ignore
+                    }
+                    setIsAuthenticated(false);
+                    setCurrentUser(null);
+                });
+        }
+    }, []);
 
     const openCreateModal = useCallback((mode = "new") => {
         setCreateModalMode(mode);
@@ -91,26 +140,65 @@ export function AppProvider({ children }) {
         setIsLoginModalOpen(false);
     }, []);
 
-    const login = useCallback((email) => {
-        setIsAuthenticated(true);
-        setCurrentUser({
-            id: "finance_ops_lead",
-            name: email.split("@")[0].replace(".", " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "Finance Lead",
-            role: "Financial Operations Lead",
-            email: email || "operations@yescapital.com",
-            initials: "FL",
-            department: "South Zone Treasury"
-        });
-        addToast({
-            type: "success",
-            title: "Authentication Successful",
-            message: "Signed in to YesCapital Enterprise Portal"
-        });
-        closeLoginModal();
+    const login = useCallback(async (identifier, password) => {
+        const res = await apiLogin({ identifier, password });
+        if (res && res.token && res.user) {
+            const formatted = {
+                ...res.user,
+                name: res.user.fullName || res.user.username
+            };
+            try {
+                localStorage.setItem("yescapital_auth_token", res.token);
+                localStorage.setItem("yescapital_auth_user", JSON.stringify(formatted));
+            } catch {
+                // Ignore storage error
+            }
+            setCurrentUser(formatted);
+            setIsAuthenticated(true);
+            addToast({
+                type: "success",
+                title: "Authentication Successful",
+                message: `Signed in as ${formatted.name} (${formatted.role})`
+            });
+            closeLoginModal();
+            return formatted;
+        }
+    }, [addToast, closeLoginModal]);
+
+    const register = useCallback(async (userData) => {
+        const res = await apiRegister(userData);
+        if (res && res.token && res.user) {
+            const formatted = {
+                ...res.user,
+                name: res.user.fullName || res.user.username
+            };
+            try {
+                localStorage.setItem("yescapital_auth_token", res.token);
+                localStorage.setItem("yescapital_auth_user", JSON.stringify(formatted));
+            } catch {
+                // Ignore storage error
+            }
+            setCurrentUser(formatted);
+            setIsAuthenticated(true);
+            addToast({
+                type: "success",
+                title: "Registration Successful",
+                message: `Account created for ${formatted.name}`
+            });
+            closeLoginModal();
+            return formatted;
+        }
     }, [addToast, closeLoginModal]);
 
     const logout = useCallback(() => {
+        try {
+            localStorage.removeItem("yescapital_auth_token");
+            localStorage.removeItem("yescapital_auth_user");
+        } catch {
+            // Ignore
+        }
         setIsAuthenticated(false);
+        setCurrentUser(null);
         addToast({
             type: "info",
             title: "Signed Out",
@@ -144,6 +232,7 @@ export function AppProvider({ children }) {
         currentUser,
         isAuthenticated,
         login,
+        register,
         logout,
         refreshSignal,
         triggerRefresh

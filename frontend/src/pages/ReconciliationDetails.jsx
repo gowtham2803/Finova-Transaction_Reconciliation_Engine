@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
     getReconciliation,
@@ -36,6 +36,7 @@ export default function ReconciliationDetails() {
     const [searchParams, setSearchParams] = useSearchParams();
     const navigate = useNavigate();
     const { addToast, triggerRefresh, refreshSignal } = useApp();
+    const workspaceRef = useRef(null);
 
     const [reconciliation, setReconciliation] = useState(null);
     const [results, setResults] = useState([]);
@@ -98,12 +99,22 @@ export default function ReconciliationDetails() {
     };
 
     const handleExecuteRun = async () => {
+        if (workspaceRef.current?.hasUnsavedChanges()) {
+            const saved = await workspaceRef.current.savePendingChanges();
+            if (saved === false) {
+                return;
+            }
+        }
         const outcome = await runReconciliation(reconciliationId);
         await loadData();
         triggerRefresh();
+        if (workspaceRef.current?.reloadWorkspace) {
+            await workspaceRef.current.reloadWorkspace();
+        }
+        const isSuccess = outcome.reconciliation?.status === "COMPLETED" || outcome.reconciliation?.status === "RECONCILED";
         addToast({
-            type: outcome.reconciliation?.status === "COMPLETED" ? "success" : "warning",
-            title: outcome.reconciliation?.status === "COMPLETED" ? "Reconciliation Completed" : "Issues Identified",
+            type: isSuccess ? "success" : "warning",
+            title: isSuccess ? "Reconciliation Completed" : "Issues Identified",
             message: `Version ${outcome.reconciliation?.version} processed. Matched: ${outcome.reconciliation?.matchedCount}, Errors: ${outcome.reconciliation?.errorCount}.`
         });
         return outcome;
@@ -123,6 +134,7 @@ export default function ReconciliationDetails() {
     const getStatusBadge = (status) => {
         switch (status) {
             case "COMPLETED":
+            case "RECONCILED":
                 return (
                     <span className="status-badge status-success">
                         <CheckCircle2 size={13} />
@@ -512,14 +524,14 @@ export default function ReconciliationDetails() {
             )}
 
             {/* TAB CONTENT: TRANSACTIONS WORKSPACE */}
-            {activeTab === "transactions" && (
-                <div className="tab-pane-content">
-                    <TransactionWorkspace
-                        reconciliationId={reconciliationId}
-                        onReconciliationUpdated={loadData}
-                    />
-                </div>
-            )}
+            <div className="tab-pane-content" style={{ display: activeTab === "transactions" ? "block" : "none" }}>
+                <TransactionWorkspace
+                    ref={workspaceRef}
+                    reconciliationId={reconciliationId}
+                    refreshSignal={refreshSignal}
+                    onReconciliationUpdated={loadData}
+                />
+            </div>
 
             {/* TAB CONTENT: RESULTS */}
             {activeTab === "results" && (
