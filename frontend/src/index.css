@@ -844,7 +844,9 @@ a {
    APPLICATION LAYOUT SHELL (AppLayout)
    ========================================================= */
 .app-layout-shell {
-    min-height: 100vh;
+    height: 100vh;
+    max-height: 100vh;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     background-color: var(--bg-app);
@@ -853,6 +855,7 @@ a {
 /* App Header */
 .app-header-shell {
     height: 70px;
+    flex-shrink: 0;
     background: var(--bg-glass);
     border-bottom: 1px solid var(--border-subtle);
     backdrop-filter: blur(16px);
@@ -861,8 +864,6 @@ a {
     align-items: center;
     justify-content: space-between;
     padding: 0 32px;
-    position: sticky;
-    top: 0;
     z-index: 40;
 }
 
@@ -1015,16 +1016,23 @@ a {
 .app-body-shell {
     display: flex;
     flex: 1;
+    height: calc(100vh - 70px);
+    min-height: 0;
+    overflow: hidden;
 }
 
 .app-sidebar-shell {
     width: 260px;
+    height: 100%;
     background: var(--bg-surface);
     border-right: 1px solid var(--border-subtle);
     display: flex;
     flex-direction: column;
     padding: 24px 16px;
     flex-shrink: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-sizing: border-box;
 }
 
 .sidebar-nav-header {
@@ -1033,6 +1041,7 @@ a {
     letter-spacing: 0.08em;
     color: var(--text-muted);
     padding: 0 12px 14px;
+    flex-shrink: 0;
 }
 
 .sidebar-nav-menu {
@@ -1088,6 +1097,8 @@ a {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    margin-top: auto;
+    flex-shrink: 0;
 }
 
 .system-status-indicator {
@@ -1118,10 +1129,19 @@ a {
 /* App Main Content Area (Spacious & Clean) */
 .app-main-content {
     flex: 1;
-    padding: 36px 40px;
-    max-width: 1440px;
-    margin: 0 auto;
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 20px 32px;
+    box-sizing: border-box;
     width: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.app-main-content:has(.details-overview-mode) {
+    overflow-y: hidden;
 }
 
 /* =========================================================
@@ -1359,6 +1379,216 @@ a {
 }
 
 /* =========================================================
+   RECONCILIATION REGISTRY TOOLBAR & TOP PAGINATION
+   ========================================================= */
+.rec-toolbar-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
+    padding: 14px 20px;
+    margin-bottom: 24px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Line 1: Search Bar (left) + Pagination Controls (right) */
+.rec-toolbar-row-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.rec-search-box {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    padding: 0 12px;
+    border-radius: var(--radius-md);
+    width: 320px;
+    max-width: 100%;
+    height: 36px;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.rec-search-box:focus-within {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.rec-search-icon {
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.rec-search-input {
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-primary);
+    font-size: 13px;
+    width: 100%;
+    height: 100%;
+}
+
+.rec-search-input::placeholder {
+    color: var(--text-muted);
+}
+
+.rec-search-clear {
+    color: var(--text-muted);
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
+    transition: color 0.15s ease;
+}
+
+.rec-search-clear:hover {
+    color: var(--text-primary);
+}
+
+.rec-pagination-nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.rec-pagination-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 36px;
+    padding: 0 13px;
+    border-radius: var(--radius-md);
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--bg-surface-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-card);
+    transition: all 0.15s ease;
+    cursor: pointer;
+    box-sizing: border-box;
+}
+
+.rec-pagination-btn:hover:not(:disabled) {
+    background: var(--bg-card-hover);
+    border-color: var(--border-hover);
+    color: var(--text-primary);
+}
+
+.rec-pagination-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    background: var(--bg-surface);
+    border-color: var(--border-subtle);
+    color: var(--text-muted);
+}
+
+.rec-pagination-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: var(--bg-input);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    white-space: nowrap;
+    user-select: none;
+    box-sizing: border-box;
+}
+
+.rec-pagination-current {
+    color: var(--text-primary);
+    font-weight: 700;
+    margin: 0 2px;
+}
+
+.rec-pagination-total {
+    color: var(--text-secondary);
+    font-weight: 600;
+    margin-left: 2px;
+}
+
+/* Line 2: Status Filters (left) + Pagination Details (right) */
+.rec-toolbar-row-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.rec-status-filter-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.rec-status-filter-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-right: 4px;
+}
+
+.rec-filter-pill {
+    height: 34px;
+    padding: 0 13px;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--bg-surface-elevated);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+    transition: all 0.15s ease;
+    cursor: pointer;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+}
+
+.rec-filter-pill:hover {
+    color: var(--text-primary);
+    border-color: var(--border-hover);
+    background: var(--bg-card-hover);
+}
+
+.rec-filter-pill-active {
+    background: #2563eb !important;
+    color: #ffffff !important;
+    border-color: #2563eb !important;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+}
+
+.rec-pagination-summary {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    white-space: nowrap;
+    margin-left: auto;
+    text-align: right;
+}
+
+/* =========================================================
    ENTERPRISE DATA TABLE (Spacious & Clean)
    ========================================================= */
 .table-responsive-container {
@@ -1428,6 +1658,90 @@ a {
     align-items: center;
     justify-content: flex-end;
     gap: 8px;
+}
+
+/* Dashboard Recent Reconciliations Table: Balanced 4-Column Centered Layout */
+.recent-reconciliations-table {
+    table-layout: fixed;
+    width: 100%;
+}
+
+.recent-reconciliations-table th,
+.recent-reconciliations-table td {
+    width: 25%;
+    text-align: center;
+    vertical-align: middle;
+    padding: 16px 14px;
+    box-sizing: border-box;
+}
+
+.recent-reconciliations-table th {
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-subtle);
+    background: transparent;
+}
+
+.recent-reconciliations-table td {
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+}
+
+.recent-rec-name-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 3px;
+    width: 100%;
+}
+
+.recent-rec-name-cell .rec-primary-name {
+    font-weight: 700;
+    color: var(--text-primary);
+    font-size: 14px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.recent-rec-name-cell .rec-secondary-code {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.recent-rec-date-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.recent-rec-status-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.recent-rec-actions-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    white-space: nowrap;
 }
 
 .table-btn {
@@ -3441,23 +3755,51 @@ input[type="date"] {
 .reconciliation-details-page {
     display: flex;
     flex-direction: column;
-    gap: 28px;
+    gap: 16px;
+    min-height: 100%;
+}
+
+.reconciliation-details-page.details-overview-mode {
+    flex: 1;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+
+.details-divider {
+    border: none;
+    border-top: 1px solid #2f3133;
+    margin: 16px 0;
+}
+
+
+.details-overview-mode .details-header-card {
+    flex: 0.6;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
 }
 
 .details-header-card {
     background: var(--bg-card);
     border: 1px solid var(--border-card);
     border-radius: var(--radius-lg);
-    padding: 28px;
+    padding: 16px 22px;
     box-shadow: var(--shadow-md);
     backdrop-filter: blur(12px);
+    flex-shrink: 0;
 }
 
 .details-header-top {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 24px;
+    margin-bottom: 12px;
 }
 
 .back-link-btn {
@@ -3620,7 +3962,7 @@ input[type="date"] {
     font-weight: 600;
     color: var(--text-secondary);
     padding: 6px 12px;
-    border-radius: var(--radius-sm);
+    border-radius: 6px;
     background: var(--bg-surface-elevated);
     border: 1px solid var(--border-subtle);
     transition: all 0.15s ease;
@@ -3635,31 +3977,39 @@ input[type="date"] {
 .details-header-meta {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
+}
+
+.details-header-meta .version-pill {
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-weight: 700;
 }
 
 .details-header-main {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 24px;
-    margin-bottom: 28px;
+    gap: 20px;
+    margin-bottom: 12px;
     flex-wrap: wrap;
 }
 
 .details-title-heading {
-    font-size: 26px;
+    font-size: 24px;
     font-weight: 800;
     letter-spacing: -0.03em;
-    color: var(--text-primary);
-    margin-bottom: 8px;
+    color: #ffffff;
+    margin-bottom: 4px;
+    line-height: 1.2;
 }
 
 .details-subtitle-meta {
     display: flex;
     align-items: center;
-    gap: 12px;
-    font-size: 13px;
+    gap: 8px;
+    font-size: 12px;
     color: var(--text-secondary);
     flex-wrap: wrap;
 }
@@ -3667,24 +4017,43 @@ input[type="date"] {
 .details-header-actions {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
+}
+
+.details-header-actions .secondary-button {
+    padding: 7px 15px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 6px;
+    gap: 7px;
+}
+
+.details-header-actions .primary-button {
+    padding: 7px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 6px;
+    gap: 7px;
+    background: #2563eb;
+    color: #ffffff;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
 }
 
 .details-tabs-bar {
     display: flex;
     align-items: center;
     gap: 8px;
-    border-top: 1px solid var(--border-subtle);
-    padding-top: 18px;
+    border-top: none;
+    padding-top: 4px;
     overflow-x: auto;
 }
 
 .details-tab-btn {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 10px 18px;
-    border-radius: var(--radius-md);
+    gap: 7px;
+    padding: 7px 15px;
+    border-radius: 6px;
     font-size: 13px;
     font-weight: 600;
     color: var(--text-secondary);
@@ -3701,6 +4070,178 @@ input[type="date"] {
     background: #2563eb !important;
     color: #ffffff !important;
     box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+}
+
+/* Overview Tab Pane & KPI Grid (50/50 Balanced Layout matching reference screenshot) */
+.tab-pane-overview {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.details-overview-mode .details-header-top {
+    margin-bottom: 0;
+}
+
+.details-overview-mode .details-header-main {
+    margin-bottom: 0;
+}
+
+.details-overview-mode .details-tabs-bar {
+    padding-top: 0;
+    border-top: none;
+}
+
+.overview-kpi-grid {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 14px;
+    box-sizing: border-box;
+}
+
+.overview-kpi-grid .kpi-card {
+    position: relative;
+    height: 100%;
+    min-height: 0;
+    padding: 14px 18px;
+    border-radius: var(--radius-lg);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    box-sizing: border-box;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow: hidden;
+}
+
+.overview-kpi-grid .kpi-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: relative;
+    z-index: 2;
+}
+
+.overview-kpi-grid .kpi-label {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: -0.01em;
+}
+
+.overview-kpi-grid .kpi-card-info {
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    z-index: 2;
+}
+
+.overview-kpi-grid .kpi-value {
+    font-size: 40px;
+    font-weight: 800;
+    color: #ffffff;
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+    margin: auto 0;
+}
+
+.overview-kpi-grid .kpi-subtext {
+    font-size: 11.5px;
+    color: var(--text-muted);
+}
+
+/* Freestanding glowing icon container styled like reference React logo */
+.overview-kpi-grid .kpi-glow-visual {
+    position: absolute;
+    right: 62px;
+    top: 50%;
+    transform: translateY(-40%);
+    width: 56px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 1;
+    transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), filter 0.3s ease;
+}
+
+.overview-kpi-grid .kpi-card:hover .kpi-glow-visual {
+    transform: translateY(-40%) scale(1.08);
+}
+
+.overview-kpi-grid .kpi-svg-icon {
+    width: 52px;
+    height: 52px;
+    display: block;
+}
+
+/* Ambient Radial Glow Aura behind each icon */
+.overview-kpi-grid .kpi-glow-visual::before {
+    content: '';
+    position: absolute;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: -1;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+/* Color-specific glow effects & ambient halos */
+.kpi-glow-blue::before {
+    background: radial-gradient(circle, rgba(56, 189, 248, 0.22) 0%, rgba(37, 99, 235, 0.08) 45%, transparent 75%);
+}
+.kpi-glow-blue .kpi-svg-icon {
+    filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.65)) drop-shadow(0 0 22px rgba(37, 99, 235, 0.35));
+}
+
+.kpi-glow-sky::before {
+    background: radial-gradient(circle, rgba(6, 182, 212, 0.22) 0%, rgba(2, 132, 199, 0.08) 45%, transparent 75%);
+}
+.kpi-glow-sky .kpi-svg-icon {
+    filter: drop-shadow(0 0 10px rgba(6, 182, 212, 0.65)) drop-shadow(0 0 22px rgba(2, 132, 199, 0.35));
+}
+
+.kpi-glow-indigo::before {
+    background: radial-gradient(circle, rgba(192, 132, 252, 0.22) 0%, rgba(99, 102, 241, 0.08) 45%, transparent 75%);
+}
+.kpi-glow-indigo .kpi-svg-icon {
+    filter: drop-shadow(0 0 10px rgba(192, 132, 252, 0.65)) drop-shadow(0 0 22px rgba(99, 102, 241, 0.35));
+}
+
+.kpi-glow-emerald::before {
+    background: radial-gradient(circle, rgba(52, 211, 153, 0.22) 0%, rgba(16, 185, 129, 0.08) 45%, transparent 75%);
+}
+.kpi-glow-emerald .kpi-svg-icon {
+    filter: drop-shadow(0 0 10px rgba(52, 211, 153, 0.65)) drop-shadow(0 0 22px rgba(16, 185, 129, 0.35));
+}
+
+.kpi-glow-amber::before {
+    background: radial-gradient(circle, rgba(251, 191, 36, 0.22) 0%, rgba(245, 158, 11, 0.08) 45%, transparent 75%);
+}
+.kpi-glow-amber .kpi-svg-icon {
+    filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.65)) drop-shadow(0 0 22px rgba(245, 158, 11, 0.35));
+}
+
+.kpi-glow-rose::before {
+    background: radial-gradient(circle, rgba(251, 113, 133, 0.25) 0%, rgba(244, 63, 94, 0.08) 45%, transparent 75%);
+}
+.kpi-glow-rose .kpi-svg-icon {
+    filter: drop-shadow(0 0 10px rgba(251, 113, 133, 0.7)) drop-shadow(0 0 22px rgba(244, 63, 94, 0.4));
+}
+
+.kpi-glow-teal::before {
+    background: radial-gradient(circle, rgba(45, 212, 191, 0.22) 0%, rgba(20, 184, 166, 0.08) 45%, transparent 75%);
+}
+.kpi-glow-teal .kpi-svg-icon {
+    filter: drop-shadow(0 0 10px rgba(45, 212, 191, 0.65)) drop-shadow(0 0 22px rgba(20, 184, 166, 0.35));
 }
 
 .tab-pill-count {

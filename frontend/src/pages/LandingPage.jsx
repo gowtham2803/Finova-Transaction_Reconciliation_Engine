@@ -64,7 +64,7 @@ export default function LandingPage() {
                         {isAuthenticated && currentUser ? (
                             <div className="landing-auth-pill">
                                 <span className="auth-pill-dot"></span>
-                                <span>{currentUser.name || currentUser.fullName || currentUser.username}</span>
+                                <span>{currentUser.username || currentUser.name}</span>
                             </div>
                         ) : (
                             <button

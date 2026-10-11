@@ -41,6 +41,16 @@ function setStoredMeta(id, meta) {
     saveMetadataStore(store);
 }
 
+function getActiveAuthUser() {
+    try {
+        const stored = localStorage.getItem("yescapital_auth_user");
+        if (stored) return JSON.parse(stored);
+    } catch {
+        // Ignore
+    }
+    return null;
+}
+
 /**
  * Robust HTTP client with standard error extraction and JSON parsing
  */
@@ -193,7 +203,16 @@ async function enrichReconciliation(rec) {
         matchedCount,
         unmatchedCount,
         errorCount: openErrors,
-        createdByUserId: meta?.createdByUserName || `Ops Lead (User #${rec.createdByUserId || 1})`,
+        createdByUserId: (() => {
+            const authUser = getActiveAuthUser();
+            const raw = rec.createdByUsername || meta?.createdByUserName || authUser?.username || "local-user";
+            return raw.replace(/^.*?\(|\)$/g, "").replace(/^.*?—\s*/i, "").trim() || "local-user";
+        })(),
+        createdByUsername: (() => {
+            const authUser = getActiveAuthUser();
+            const raw = rec.createdByUsername || meta?.createdByUserName || authUser?.username || "local-user";
+            return raw.replace(/^.*?\(|\)$/g, "").replace(/^.*?—\s*/i, "").trim() || "local-user";
+        })(),
         status: rec.status === "RECONCILED" ? "COMPLETED" : rec.status,
         version: rec.version || 1,
         startedAt: rec.startedAt,
@@ -233,8 +252,12 @@ export async function getReconciliation(reconciliationId) {
  * 4. CREATE RECONCILIATION: Save new batch to database
  */
 export async function createReconciliation(payload) {
+    const authUser = getActiveAuthUser();
+    const currentUsername = authUser?.username || "local-user";
+    const currentUserId = Number(payload?.createdByUserId) || Number(authUser?.id) || 1;
+
     const body = {
-        createdByUserId: Number(payload?.createdByUserId) || 1
+        createdByUserId: currentUserId
     };
 
     const created = await request("/reconciliations", {
@@ -252,7 +275,7 @@ export async function createReconciliation(payload) {
         description: payload.description || "Created via YesCapital workspace",
         referenceBatch: payload.referenceBatch || `BATCH-${dateStr.replace(/-/g, "").slice(2)}-${newId}`,
         notes: payload.notes || "",
-        createdByUserName: "Operations Lead (local-user)"
+        createdByUserName: currentUsername
     });
 
     return enrichReconciliation(created);
@@ -562,11 +585,12 @@ export async function resolveError(errorId, resolutionNotes = "Manual verificati
     const resolved = await request(`/errors/${Number(errorId)}/resolve`, {
         method: "PATCH"
     });
+    const authUser = getActiveAuthUser();
     return {
         ...resolved,
         id: String(resolved?.id || errorId),
         resolutionNotes,
-        resolvedBy: "finance_ops_lead"
+        resolvedBy: authUser?.username || "local-user"
     };
 }
 
@@ -584,6 +608,8 @@ export async function getAuditLogs(params = {}) {
 
     const pageData = await request(`/audit-logs${query}`);
     const logs = pageData?.content || (Array.isArray(pageData) ? pageData : []);
+    const authUser = getActiveAuthUser();
+    const defaultUsername = authUser?.username || "local-user";
 
     const mapped = logs.map((log) => {
         const recMeta = log.reconciliationId ? getStoredMeta(log.reconciliationId) : null;
@@ -595,8 +621,7 @@ export async function getAuditLogs(params = {}) {
             entity: log.transactionId ? "Transaction" : "Reconciliation",
             entityId: String(log.transactionId || log.reconciliationId || log.id),
             transactionId: log.transactionId,
-            user: "finance_ops_lead",
-            userRole: "Operations Lead",
+            user: log.username || defaultUsername,
             oldValue: log.oldValue || "—",
             newValue: log.newValue || "—",
             description: log.reason || `${log.action} executed`,

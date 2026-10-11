@@ -7,6 +7,7 @@ public class ReconciliationResponse {
     private Long id;
     private String reconciliationCode;
     private Long createdByUserId;
+    private String createdByUsername;
     private String status;
     private Integer version;
     private LocalDateTime startedAt;
@@ -36,6 +37,14 @@ public class ReconciliationResponse {
 
     public void setCreatedByUserId(Long createdByUserId) {
         this.createdByUserId = createdByUserId;
+    }
+
+    public String getCreatedByUsername() {
+        return createdByUsername;
+    }
+
+    public void setCreatedByUsername(String createdByUsername) {
+        this.createdByUsername = createdByUsername;
     }
 
     public String getStatus() {

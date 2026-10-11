@@ -31,6 +31,133 @@ import {
     ChevronRight
 } from "lucide-react";
 
+/* Modern, stylish, glowing scorecard visual icons styled like the reference React logo */
+function TotalTxVisual() {
+    return (
+        <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg" className="kpi-svg-icon">
+            <defs>
+                <linearGradient id="kpiTotalGrad" x1="6" y1="6" x2="46" y2="46" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#38bdf8" />
+                    <stop offset="50%" stopColor="#60a5fa" />
+                    <stop offset="100%" stopColor="#2563eb" />
+                </linearGradient>
+            </defs>
+            <path d="M12 24C12 17.37 17.37 12 24 12H38M38 12L31 6M38 12L31 18" stroke="url(#kpiTotalGrad)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M40 28C40 34.63 34.63 40 28 40H14M14 40L21 34M14 40L21 46" stroke="url(#kpiTotalGrad)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="26" cy="26" r="3.5" fill="#38bdf8" />
+            <circle cx="12" cy="24" r="2" fill="#60a5fa" />
+            <circle cx="40" cy="28" r="2" fill="#2563eb" />
+        </svg>
+    );
+}
+
+function MInVisual() {
+    return (
+        <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg" className="kpi-svg-icon">
+            <defs>
+                <linearGradient id="kpiMInGrad" x1="38" y1="10" x2="12" y2="42" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#38bdf8" />
+                    <stop offset="100%" stopColor="#06b6d4" />
+                </linearGradient>
+            </defs>
+            <path d="M14 26V38H26" stroke="url(#kpiMInGrad)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M38 14L16 36M16 36H28M16 36V24" stroke="url(#kpiMInGrad)" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M32 10L38 10V16" stroke="url(#kpiMInGrad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.6" />
+            <circle cx="38" cy="14" r="3.5" fill="#38bdf8" />
+        </svg>
+    );
+}
+
+function MOutVisual() {
+    return (
+        <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg" className="kpi-svg-icon">
+            <defs>
+                <linearGradient id="kpiMOutGrad" x1="12" y1="42" x2="38" y2="10" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#c084fc" />
+                    <stop offset="100%" stopColor="#6366f1" />
+                </linearGradient>
+            </defs>
+            <path d="M26 38H14V26" stroke="url(#kpiMOutGrad)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M16 36L38 14M38 14H26M38 14V26" stroke="url(#kpiMOutGrad)" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M20 42L14 42V36" stroke="url(#kpiMOutGrad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.6" />
+            <circle cx="38" cy="14" r="3.5" fill="#c084fc" />
+        </svg>
+    );
+}
+
+function MatchedVisual() {
+    return (
+        <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg" className="kpi-svg-icon">
+            <defs>
+                <linearGradient id="kpiMatchedGrad" x1="8" y1="8" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#6ee7b7" />
+                    <stop offset="50%" stopColor="#34d399" />
+                    <stop offset="100%" stopColor="#059669" />
+                </linearGradient>
+            </defs>
+            <circle cx="26" cy="26" r="18" stroke="url(#kpiMatchedGrad)" strokeWidth="2.8" strokeDasharray="68 12" strokeLinecap="round" />
+            <path d="M16 27L23 34L36 19" stroke="url(#kpiMatchedGrad)" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="42" cy="18" r="2.5" fill="#6ee7b7" />
+            <circle cx="10" cy="34" r="2" fill="#34d399" />
+        </svg>
+    );
+}
+
+function UnmatchedVisual() {
+    return (
+        <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg" className="kpi-svg-icon">
+            <defs>
+                <linearGradient id="kpiUnmatchedGrad" x1="10" y1="8" x2="42" y2="44" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#fde047" />
+                    <stop offset="50%" stopColor="#fbbf24" />
+                    <stop offset="100%" stopColor="#d97706" />
+                </linearGradient>
+            </defs>
+            <path d="M26 9L43 39H9L26 9Z" stroke="url(#kpiUnmatchedGrad)" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M26 20V28" stroke="url(#kpiUnmatchedGrad)" strokeWidth="3.2" strokeLinecap="round" />
+            <circle cx="26" cy="34" r="2.2" fill="#fde047" />
+            <circle cx="39" cy="18" r="2" fill="#fbbf24" opacity="0.8" />
+            <circle cx="13" cy="28" r="1.5" fill="#fde047" opacity="0.6" />
+        </svg>
+    );
+}
+
+function OpenErrorsVisual() {
+    return (
+        <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg" className="kpi-svg-icon">
+            <defs>
+                <linearGradient id="kpiOpenErrorsGrad" x1="8" y1="8" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#fda4af" />
+                    <stop offset="50%" stopColor="#fb7185" />
+                    <stop offset="100%" stopColor="#e11d48" />
+                </linearGradient>
+            </defs>
+            <path d="M16 8H36L44 16V36L36 44H16L8 36V16L16 8Z" stroke="url(#kpiOpenErrorsGrad)" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M26 17V29" stroke="url(#kpiOpenErrorsGrad)" strokeWidth="3.4" strokeLinecap="round" />
+            <circle cx="26" cy="35" r="2.5" fill="#fda4af" />
+            <circle cx="8" cy="16" r="2" fill="#fb7185" />
+            <circle cx="44" cy="36" r="2" fill="#fda4af" />
+        </svg>
+    );
+}
+
+function ResolvedErrorsVisual() {
+    return (
+        <svg width="52" height="52" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg" className="kpi-svg-icon">
+            <defs>
+                <linearGradient id="kpiResolvedGrad" x1="8" y1="6" x2="44" y2="46" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stopColor="#5eead4" />
+                    <stop offset="50%" stopColor="#2dd4bf" />
+                    <stop offset="100%" stopColor="#0d9488" />
+                </linearGradient>
+            </defs>
+            <path d="M26 8L41 14V27C41 36 34 43 26 46C18 43 11 36 11 27V14L26 8Z" stroke="url(#kpiResolvedGrad)" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M19 26L24 31L33 21" stroke="url(#kpiResolvedGrad)" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="26" cy="8" r="2.5" fill="#5eead4" />
+        </svg>
+    );
+}
+
 export default function ReconciliationDetails() {
     const { reconciliationId } = useParams();
     const [searchParams, setSearchParams] = useSearchParams();
@@ -244,7 +371,7 @@ export default function ReconciliationDetails() {
     const resolvedErrorsCount = errors.filter((e) => e.status === "RESOLVED").length;
 
     return (
-        <div className="reconciliation-details-page">
+        <div className={`reconciliation-details-page ${activeTab === "overview" ? "details-overview-mode" : ""}`}>
             {/* Top Back Action & Title Bar */}
             <div className="details-header-card">
                 <div className="details-header-top">
@@ -269,15 +396,15 @@ export default function ReconciliationDetails() {
                             {reconciliation.reconciliationName}
                         </h1>
                         <div className="details-subtitle-meta">
-                            <span className="font-mono text-slate-700 font-semibold">{reconciliation.reconciliationCode}</span>
+                            <span className="font-mono text-slate-300 font-semibold">{reconciliation.reconciliationCode}</span>
                             <span>•</span>
                             <span className="flex items-center gap-1">
-                                <Calendar size={13} className="text-slate-400" />
+                                <Calendar size={14} className="text-slate-400" />
                                 {reconciliation.reconciliationDate}
                             </span>
                             <span>•</span>
                             <span className="flex items-center gap-1">
-                                <Tag size={13} className="text-slate-400" />
+                                <Tag size={14} className="text-slate-400" />
                                 {reconciliation.referenceBatch}
                             </span>
                             <span>•</span>
@@ -294,7 +421,7 @@ export default function ReconciliationDetails() {
                             onClick={loadData}
                             title="Refresh data"
                         >
-                            <RotateCw size={15} />
+                            <RotateCw size={16} />
                             <span>Refresh</span>
                         </button>
 
@@ -310,6 +437,7 @@ export default function ReconciliationDetails() {
                         </button>
                     </div>
                 </div>
+                <hr className="details-divider" />
 
                 {/* Navigation Tabs */}
                 <div className="details-tabs-bar">
@@ -318,7 +446,7 @@ export default function ReconciliationDetails() {
                         className={`details-tab-btn ${activeTab === "overview" ? "tab-active" : ""}`}
                         onClick={() => handleTabChange("overview")}
                     >
-                        <Layers size={15} />
+                        <Layers size={16} />
                         <span>Overview</span>
                     </button>
 
@@ -327,7 +455,7 @@ export default function ReconciliationDetails() {
                         className={`details-tab-btn ${activeTab === "transactions" ? "tab-active" : ""}`}
                         onClick={() => handleTabChange("transactions")}
                     >
-                        <TableProperties size={15} />
+                        <TableProperties size={16} />
                         <span>Transactions</span>
                         <span className="tab-pill-count">
                             {reconciliation.transactionCount || 0}
@@ -339,7 +467,7 @@ export default function ReconciliationDetails() {
                         className={`details-tab-btn ${activeTab === "results" ? "tab-active" : ""}`}
                         onClick={() => handleTabChange("results")}
                     >
-                        <CheckSquare size={15} />
+                        <CheckSquare size={16} />
                         <span>Results</span>
                         <span className="tab-pill-count">
                             {results.length}
@@ -351,7 +479,7 @@ export default function ReconciliationDetails() {
                         className={`details-tab-btn ${activeTab === "errors" ? "tab-active" : ""}`}
                         onClick={() => handleTabChange("errors")}
                     >
-                        <AlertOctagon size={15} />
+                        <AlertOctagon size={16} />
                         <span>Errors</span>
                         {openErrorsCount > 0 && (
                             <span className="tab-pill-count tab-pill-error">
@@ -365,7 +493,7 @@ export default function ReconciliationDetails() {
                         className={`details-tab-btn ${activeTab === "audit" ? "tab-active" : ""}`}
                         onClick={() => handleTabChange("audit")}
                     >
-                        <History size={15} />
+                        <History size={16} />
                         <span>Audit History</span>
                         <span className="tab-pill-count">
                             {auditLogs.length}
@@ -376,148 +504,100 @@ export default function ReconciliationDetails() {
 
             {/* TAB CONTENT: OVERVIEW */}
             {activeTab === "overview" && (
-                <div className="tab-pane-content">
+                <div className="tab-pane-content tab-pane-overview">
                     {/* Summary KPI Grid */}
-                    <div className="dashboard-kpi-grid mb-6">
+                    <div className="overview-kpi-grid">
                         <div className="kpi-card">
                             <div className="kpi-card-header">
                                 <span className="kpi-label">Total Transactions</span>
-                                <TableProperties size={17} className="text-blue-500" />
                             </div>
-                            <div className="kpi-value">{reconciliation.transactionCount || 0}</div>
-                            <div className="kpi-subtext">Across both sheets</div>
+                            <div className="kpi-card-info">
+                                <div className="kpi-value">{reconciliation.transactionCount || 0}</div>
+                                <div className="kpi-subtext">Across both sheets</div>
+                            </div>
+                            <div className="kpi-glow-visual kpi-glow-blue">
+                                <TotalTxVisual />
+                            </div>
                         </div>
 
                         <div className="kpi-card">
                             <div className="kpi-card-header">
                                 <span className="kpi-label">M In Transactions</span>
-                                <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">M In</span>
+                                <span className="text-xs font-semibold text-slate-200">M In</span>
                             </div>
-                            <div className="kpi-value text-blue-700">{reconciliation.mInCount || 0}</div>
-                            <div className="kpi-subtext">Credit vouchers</div>
+                            <div className="kpi-card-info">
+                                <div className="kpi-value">{reconciliation.mInCount || 0}</div>
+                                <div className="kpi-subtext">Credit vouchers</div>
+                            </div>
+                            <div className="kpi-glow-visual kpi-glow-sky">
+                                <MInVisual />
+                            </div>
                         </div>
 
                         <div className="kpi-card">
                             <div className="kpi-card-header">
                                 <span className="kpi-label">M Out Transactions</span>
-                                <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">M Out</span>
+                                <span className="text-xs font-semibold text-slate-200">M Out</span>
                             </div>
-                            <div className="kpi-value text-indigo-700">{reconciliation.mOutCount || 0}</div>
-                            <div className="kpi-subtext">Debit vouchers</div>
+                            <div className="kpi-card-info">
+                                <div className="kpi-value">{reconciliation.mOutCount || 0}</div>
+                                <div className="kpi-subtext">Debit vouchers</div>
+                            </div>
+                            <div className="kpi-glow-visual kpi-glow-indigo">
+                                <MOutVisual />
+                            </div>
                         </div>
 
                         <div className="kpi-card">
                             <div className="kpi-card-header">
                                 <span className="kpi-label">Matched</span>
-                                <CheckCircle2 size={17} className="text-emerald-500" />
                             </div>
-                            <div className="kpi-value text-emerald-600">{reconciliation.matchedCount || 0}</div>
-                            <div className="kpi-subtext">Fully reconciled pairs</div>
+                            <div className="kpi-card-info">
+                                <div className="kpi-value">{reconciliation.matchedCount || 0}</div>
+                                <div className="kpi-subtext">Fully reconciled pairs</div>
+                            </div>
+                            <div className="kpi-glow-visual kpi-glow-emerald">
+                                <MatchedVisual />
+                            </div>
                         </div>
 
                         <div className="kpi-card">
                             <div className="kpi-card-header">
                                 <span className="kpi-label">Unmatched</span>
-                                <AlertTriangle size={17} className="text-slate-400" />
                             </div>
-                            <div className="kpi-value text-slate-700">{reconciliation.unmatchedCount || 0}</div>
-                            <div className="kpi-subtext">Pending counterpart</div>
+                            <div className="kpi-card-info">
+                                <div className="kpi-value">{reconciliation.unmatchedCount || 0}</div>
+                                <div className="kpi-subtext">Pending counterpart</div>
+                            </div>
+                            <div className="kpi-glow-visual kpi-glow-amber">
+                                <UnmatchedVisual />
+                            </div>
                         </div>
 
                         <div className="kpi-card">
                             <div className="kpi-card-header">
                                 <span className="kpi-label">Open Errors</span>
-                                <AlertOctagon size={17} className="text-rose-500" />
                             </div>
-                            <div className="kpi-value text-rose-600">{openErrorsCount}</div>
-                            <div className="kpi-subtext">Requires resolution</div>
+                            <div className="kpi-card-info">
+                                <div className="kpi-value">{openErrorsCount}</div>
+                                <div className="kpi-subtext">Requires resolution</div>
+                            </div>
+                            <div className="kpi-glow-visual kpi-glow-rose">
+                                <OpenErrorsVisual />
+                            </div>
                         </div>
 
                         <div className="kpi-card">
                             <div className="kpi-card-header">
                                 <span className="kpi-label">Resolved Errors</span>
-                                <ShieldCheck size={17} className="text-emerald-500" />
                             </div>
-                            <div className="kpi-value text-emerald-600">{resolvedErrorsCount}</div>
-                            <div className="kpi-subtext">Audited and cleared</div>
-                        </div>
-                    </div>
-
-                    {/* Metadata Details Card */}
-                    <div className="content-card">
-                        <div className="content-card-header">
-                            <div>
-                                <h3 className="content-card-title">Reconciliation Specifications</h3>
-                                <p className="content-card-subtitle">
-                                    Operational batch identity and system governance metadata.
-                                </p>
+                            <div className="kpi-card-info">
+                                <div className="kpi-value">{resolvedErrorsCount}</div>
+                                <div className="kpi-subtext">Audited and cleared</div>
                             </div>
-                            <button
-                                type="button"
-                                className="secondary-button"
-                                onClick={() => handleTabChange("transactions")}
-                            >
-                                <span>Open Transactions Workspace</span>
-                                <ChevronRight size={15} />
-                            </button>
-                        </div>
-
-                        <div className="info-metadata-grid">
-                            <div className="info-meta-item">
-                                <span className="info-meta-label">Reconciliation Name</span>
-                                <strong className="info-meta-value text-slate-100">{reconciliation.reconciliationName}</strong>
+                            <div className="kpi-glow-visual kpi-glow-teal">
+                                <ResolvedErrorsVisual />
                             </div>
-
-                            <div className="info-meta-item">
-                                <span className="info-meta-label">Reconciliation Code</span>
-                                <strong className="info-meta-value font-mono text-slate-200">{reconciliation.reconciliationCode}</strong>
-                            </div>
-
-                            <div className="info-meta-item">
-                                <span className="info-meta-label">Reconciliation Date</span>
-                                <strong className="info-meta-value text-slate-200">{reconciliation.reconciliationDate}</strong>
-                            </div>
-
-                            <div className="info-meta-item">
-                                <span className="info-meta-label">Reference / Batch Name</span>
-                                <strong className="info-meta-value text-slate-200">{reconciliation.referenceBatch || "—"}</strong>
-                            </div>
-
-                            <div className="info-meta-item">
-                                <span className="info-meta-label">Engine Version</span>
-                                <strong className="info-meta-value text-slate-200">Version {reconciliation.version}</strong>
-                            </div>
-
-                            <div className="info-meta-item">
-                                <span className="info-meta-label">Processing Status</span>
-                                <div>{getStatusBadge(reconciliation.status)}</div>
-                            </div>
-
-                            <div className="info-meta-item">
-                                <span className="info-meta-label">Initiated By</span>
-                                <strong className="info-meta-value text-slate-200">{reconciliation.createdByUserId}</strong>
-                            </div>
-
-                            <div className="info-meta-item">
-                                <span className="info-meta-label">Created At</span>
-                                <strong className="info-meta-value text-xs text-slate-400">{formatDate(reconciliation.createdAt)}</strong>
-                            </div>
-
-                            <div className="info-meta-item col-span-2">
-                                <span className="info-meta-label">Description</span>
-                                <p className="text-sm text-slate-300 leading-relaxed">
-                                    {reconciliation.description || "No description provided."}
-                                </p>
-                            </div>
-
-                            {reconciliation.notes && (
-                                <div className="info-meta-item col-span-2">
-                                    <span className="info-meta-label">Operational Notes</span>
-                                    <p className="text-sm text-slate-300 bg-black/20 p-2.5 rounded border border-white/5">
-                                        {reconciliation.notes}
-                                    </p>
-                                </div>
-                            )}
                         </div>
                     </div>
                 </div>
@@ -805,7 +885,6 @@ export default function ReconciliationDetails() {
                                                 </td>
                                                 <td>
                                                     <div className="text-xs font-semibold text-slate-800">{log.user}</div>
-                                                    <div className="text-[10px] text-slate-400">{log.userRole}</div>
                                                 </td>
                                                 <td>
                                                     <span className="audit-action-badge">

@@ -67,35 +67,9 @@ export default function ReconciliationQuickViewModal({ isOpen, onClose, reconcil
                 {/* Header */}
                 <div className="modal-header">
                     <div>
-                        <div className="quickview-header-tags">
-                            <span className="version-pill">v{reconciliation.version || 1}</span>
-                            <span
-                                className={`status-badge ${
-                                    isCompleted
-                                        ? "status-success"
-                                        : isIssue
-                                        ? "status-error"
-                                        : "status-pending"
-                                }`}
-                            >
-                                {isIssue && <AlertTriangle size={12} className="inline mr-1" />}
-                                {isCompleted && <CheckCircle size={12} className="inline mr-1" />}
-                                {reconciliation.status ? reconciliation.status.replace("_", " ") : "PENDING"}
-                            </span>
-                        </div>
                         <h2 id="quick-view-title" className="modal-title">
                             {reconciliation.reconciliationName}
                         </h2>
-                        <div className="quickview-tags-row">
-                            <span className="quickview-tag">
-                                <FileSpreadsheet size={12} />
-                                {reconciliation.reconciliationCode}
-                            </span>
-                            <span className="quickview-tag">
-                                <Tag size={12} />
-                                Batch: {reconciliation.referenceBatch || "Main"}
-                            </span>
-                        </div>
                     </div>
                     <button
                         type="button"
@@ -110,23 +84,6 @@ export default function ReconciliationQuickViewModal({ isOpen, onClose, reconcil
                 {/* Body */}
                 <div className="quickview-body">
                     {/* Section 1: Overview & Scope */}
-                    <div className="quickview-overview-card">
-                        <div className="quickview-section-header">
-                            <Info size={13} className="text-blue-500" />
-                            <span>Reconciliation Scope &amp; Context</span>
-                        </div>
-                        <p className="quickview-desc-text">
-                            {reconciliation.description ||
-                                "Inter-branch transaction reconciliation batch for settlement clearance."}
-                        </p>
-                        {reconciliation.notes && (
-                            <div className="quickview-notes-pill">
-                                <span className="font-semibold text-slate-400">Ledger Note:</span>
-                                <span>{reconciliation.notes}</span>
-                            </div>
-                        )}
-                    </div>
-
                     {/* Section 2: Important Financial Metrics (Separate Cards in Multi-Column Grid) */}
                     <div>
                         <div className="quickview-section-header" style={{ marginBottom: "10px" }}>
@@ -220,9 +177,9 @@ export default function ReconciliationQuickViewModal({ isOpen, onClose, reconcil
                             <div className="quickview-meta-card">
                                 <User size={16} className="quickview-meta-icon" />
                                 <div className="quickview-meta-content">
-                                    <span className="quickview-meta-label">Initiated By</span>
+                                    <span className="quickview-meta-label">User</span>
                                     <span className="quickview-meta-value">
-                                        {reconciliation.createdByUserId || "finance_ops_user"}
+                                        {reconciliation.createdByUsername || reconciliation.createdByUserId || "local-user"}
                                     </span>
                                 </div>
                             </div>

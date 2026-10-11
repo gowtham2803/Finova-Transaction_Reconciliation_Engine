@@ -118,8 +118,7 @@ export default function AppLayout() {
                                 {currentUser.initials || "YC"}
                             </div>
                             <div className="user-text-meta">
-                                <span className="user-display-name">{currentUser.name || currentUser.fullName || currentUser.username}</span>
-                                <span className="user-role-label">{currentUser.role || "Financial Operations"}</span>
+                                <span className="user-display-name">{currentUser.username || currentUser.name}</span>
                             </div>
                             <button
                                 type="button"

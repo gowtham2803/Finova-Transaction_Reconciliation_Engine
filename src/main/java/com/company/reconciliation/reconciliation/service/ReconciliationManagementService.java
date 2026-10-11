@@ -141,6 +141,12 @@ public class ReconciliationManagementService {
                         : null
         );
 
+        response.setCreatedByUsername(
+                reconciliation.getCreatedBy() != null
+                        ? reconciliation.getCreatedBy().getUsername()
+                        : null
+        );
+
         response.setStatus(reconciliation.getStatus());
         response.setVersion(reconciliation.getVersion());
         response.setStartedAt(reconciliation.getStartedAt());

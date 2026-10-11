@@ -129,6 +129,9 @@ public class AuditLogQueryService {
                 auditLog.getUser() != null
                         ? auditLog.getUser().getId()
                         : null,
+                auditLog.getUser() != null
+                        ? auditLog.getUser().getUsername()
+                        : null,
                 auditLog.getReconciliation() != null
                         ? auditLog.getReconciliation().getId()
                         : null,

@@ -11,11 +11,20 @@ import {
     RotateCw,
     Clock,
     Calendar,
+    ChevronLeft,
     ChevronRight,
     Layers,
     FileSpreadsheet,
     Eye
 } from "lucide-react";
+
+const STATUS_OPTIONS = [
+    { key: "ALL", label: "All" },
+    { key: "PENDING", label: "Pending" },
+    { key: "PROCESSING", label: "Processing" },
+    { key: "COMPLETED", label: "Completed" },
+    { key: "ISSUES_FOUND", label: "Issues Found" }
+];
 
 export default function Reconciliations() {
     const navigate = useNavigate();
@@ -171,14 +180,15 @@ export default function Reconciliations() {
                 </div>
             </div>
 
-            {/* Filter and Search Bar */}
-            <div className="content-card mb-6 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="search-input-wrapper max-w-md flex-1">
-                        <Search size={15} className="search-icon" />
+            {/* Filter, Search & Pagination Container */}
+            <div className="rec-toolbar-card">
+                {/* Line 1: Search Bar (left) + Pagination Controls (right) */}
+                <div className="rec-toolbar-row-top">
+                    <div className="rec-search-box">
+                        <Search size={15} className="rec-search-icon" />
                         <input
                             type="text"
-                            className="workspace-search-input"
+                            className="rec-search-input"
                             placeholder="Search by name, reference batch, or code..."
                             value={searchQuery}
                             onChange={(e) => {
@@ -189,29 +199,74 @@ export default function Reconciliations() {
                         {searchQuery && (
                             <button
                                 type="button"
-                                className="search-clear-btn"
-                                onClick={() => setSearchQuery("")}
+                                className="rec-search-clear"
+                                onClick={() => {
+                                    setSearchQuery("");
+                                    setCurrentPage(1);
+                                }}
+                                title="Clear search"
                             >
                                 ×
                             </button>
                         )}
                     </div>
 
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-semibold text-slate-400">Status:</span>
-                        {["ALL", "PENDING", "PROCESSING", "COMPLETED", "ISSUES_FOUND"].map((status) => (
+                    <div className="rec-pagination-nav">
+                        <button
+                            type="button"
+                            className="rec-pagination-btn"
+                            disabled={currentPage === 1}
+                            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                            title="Previous Page"
+                        >
+                            <ChevronLeft size={14} />
+                            <span>Previous</span>
+                        </button>
+
+                        <div className="rec-pagination-indicator">
+                            Page <span className="rec-pagination-current">{currentPage}</span> of <span className="rec-pagination-total">{totalPages || 1}</span>
+                        </div>
+
+                        <button
+                            type="button"
+                            className="rec-pagination-btn"
+                            disabled={currentPage >= totalPages || totalPages === 0}
+                            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                            title="Next Page"
+                        >
+                            <span>Next</span>
+                            <ChevronRight size={14} />
+                        </button>
+                    </div>
+                </div>
+
+                {/* Line 2: Status Filters (left) + Pagination Details (right) */}
+                <div className="rec-toolbar-row-bottom">
+                    <div className="rec-status-filter-group">
+                        <span className="rec-status-filter-label">Status:</span>
+                        {STATUS_OPTIONS.map((opt) => (
                             <button
-                                key={status}
+                                key={opt.key}
                                 type="button"
-                                className={`filter-btn-pill ${statusFilter === status ? "filter-btn-pill-active" : ""}`}
+                                className={`rec-filter-pill ${statusFilter === opt.key ? "rec-filter-pill-active" : ""}`}
                                 onClick={() => {
-                                    setStatusFilter(status);
+                                    setStatusFilter(opt.key);
                                     setCurrentPage(1);
                                 }}
                             >
-                                {status.replace("_", " ")}
+                                {opt.label}
                             </button>
                         ))}
+                    </div>
+
+                    <div className="rec-pagination-summary">
+                        Showing {filteredAndSorted.length > 0 ? (
+                            <>
+                                {(currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, filteredAndSorted.length)} of {filteredAndSorted.length}
+                            </>
+                        ) : (
+                            "0 of 0"
+                        )}
                     </div>
                 </div>
             </div>
@@ -337,36 +392,6 @@ export default function Reconciliations() {
                             )}
                         </tbody>
                     </table>
-                </div>
-
-                {/* Pagination Controls */}
-                <div className="flex items-center justify-between pt-6 border-t border-white/5 text-xs text-slate-400">
-                    <div>
-                        Showing {filteredAndSorted.length > 0 ? (currentPage - 1) * pageSize + 1 : 0} to{" "}
-                        {Math.min(currentPage * pageSize, filteredAndSorted.length)} of {filteredAndSorted.length} reconciliations
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        <button
-                            type="button"
-                            className="secondary-button text-xs py-1.5 px-3"
-                            disabled={currentPage === 1}
-                            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                        >
-                            Previous
-                        </button>
-                        <span className="px-2 font-medium text-slate-300">
-                            Page {currentPage} of {totalPages}
-                        </span>
-                        <button
-                            type="button"
-                            className="secondary-button text-xs py-1.5 px-3"
-                            disabled={currentPage >= totalPages}
-                            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                        >
-                            Next
-                        </button>
-                    </div>
                 </div>
             </div>
 

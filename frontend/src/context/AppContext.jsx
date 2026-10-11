@@ -158,7 +158,7 @@ export function AppProvider({ children }) {
             addToast({
                 type: "success",
                 title: "Authentication Successful",
-                message: `Signed in as ${formatted.name} (${formatted.role})`
+                message: `Signed in as ${formatted.username || formatted.name}`
             });
             closeLoginModal();
             return formatted;
@@ -183,7 +183,7 @@ export function AppProvider({ children }) {
             addToast({
                 type: "success",
                 title: "Registration Successful",
-                message: `Account created for ${formatted.name}`
+                message: `Account created for ${formatted.username || formatted.name}`
             });
             closeLoginModal();
             return formatted;

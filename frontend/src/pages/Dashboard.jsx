@@ -227,9 +227,6 @@ export default function Dashboard() {
                 <div className="content-card-header">
                     <div>
                         <h2 className="content-card-title">Recent Reconciliations</h2>
-                        <p className="content-card-subtitle">
-                            Click any row to view its quick summary details, or jump straight into the workspace.
-                        </p>
                     </div>
 
                     <div className="table-header-controls">
@@ -298,20 +295,20 @@ export default function Dashboard() {
 
                 {/* Table with Clickable Rows & Progressive Disclosure */}
                 <div className="table-responsive-container">
-                    <table className="enterprise-data-table">
+                    <table className="enterprise-data-table recent-reconciliations-table">
                         <thead>
                             <tr>
-                                <th style={{ width: "42%" }}>Reconciliation Name</th>
-                                <th style={{ width: "20%" }}>Date</th>
-                                <th style={{ width: "18%" }}>Status</th>
-                                <th style={{ width: "20%" }} className="text-right">Actions</th>
+                                <th style={{ width: "25%", textAlign: "center" }}>Reconciliation Name</th>
+                                <th style={{ width: "25%", textAlign: "center" }}>Date</th>
+                                <th style={{ width: "25%", textAlign: "center" }}>Status</th>
+                                <th style={{ width: "25%", textAlign: "center" }}>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {loading ? (
                                 <tr>
                                     <td colSpan={4} className="py-12 text-center text-slate-400">
-                                        <div className="flex items-center justify-center gap-2">
+                                        <div className="flex items-center justify-center gap-2" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", padding: "48px 0" }}>
                                             <RotateCw size={16} className="spin text-blue-500" />
                                             <span>Loading reconciliation records...</span>
                                         </div>
@@ -319,7 +316,7 @@ export default function Dashboard() {
                                 </tr>
                             ) : filteredRecent.length === 0 ? (
                                 <tr>
-                                    <td colSpan={4} className="py-12 text-center">
+                                    <td colSpan={4} className="py-12 text-center" style={{ padding: "48px 0", textAlign: "center" }}>
                                         <div className="empty-state-wrap">
                                             <Layers size={36} className="text-slate-500 mx-auto mb-2" />
                                             <div className="empty-title">No reconciliations found</div>
@@ -346,30 +343,34 @@ export default function Dashboard() {
                                     >
                                         {/* Reconciliation Name with Code */}
                                         <td>
-                                            <div className="rec-name-cell">
+                                            <div className="recent-rec-name-cell">
                                                 <div className="rec-primary-name">
                                                     {rec.reconciliationName}
                                                 </div>
                                                 <div className="rec-secondary-code">
-                                                    {rec.reconciliationCode} • Batch: {rec.referenceBatch || "Main"}
+                                                    {rec.referenceBatch || "Main"}
                                                 </div>
                                             </div>
                                         </td>
 
                                         {/* Date */}
-                                        <td className="whitespace-nowrap">
-                                            <div className="flex items-center gap-2 text-xs text-slate-400">
+                                        <td>
+                                            <div className="recent-rec-date-cell">
                                                 <Calendar size={13} />
                                                 <span>{formatDate(rec.reconciliationDate)}</span>
                                             </div>
                                         </td>
 
                                         {/* Status */}
-                                        <td>{getStatusBadge(rec.status)}</td>
+                                        <td>
+                                            <div className="recent-rec-status-cell">
+                                                {getStatusBadge(rec.status)}
+                                            </div>
+                                        </td>
 
                                         {/* Actions */}
-                                        <td className="text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                                            <div className="table-action-group">
+                                        <td onClick={(e) => e.stopPropagation()}>
+                                            <div className="recent-rec-actions-cell">
                                                 <button
                                                     type="button"
                                                     className="table-btn table-btn-secondary"

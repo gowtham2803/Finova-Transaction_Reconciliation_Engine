@@ -98,7 +98,7 @@ export default function AuditLogs() {
                         <input
                             type="text"
                             className="workspace-search-input"
-                            placeholder="Search audit trail by description, operator, or batch name..."
+                            placeholder="Search audit trail by description, user, or batch name..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
@@ -128,7 +128,7 @@ export default function AuditLogs() {
                         <thead>
                             <tr>
                                 <th>Timestamp</th>
-                                <th>Operator</th>
+                                <th>User</th>
                                 <th>Action Event</th>
                                 <th>Entity Target</th>
                                 <th>Reconciliation Batch</th>
@@ -158,7 +158,6 @@ export default function AuditLogs() {
                                         </td>
                                         <td>
                                             <div className="text-xs font-semibold text-slate-100">{log.user}</div>
-                                            <div className="text-[10px] text-slate-400">{log.userRole || "Finance Ops"}</div>
                                         </td>
                                         <td>
                                             <span className="audit-action-badge">
