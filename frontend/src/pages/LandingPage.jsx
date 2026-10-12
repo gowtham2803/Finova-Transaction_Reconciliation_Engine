@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import ToastContainer from "../components/common/ToastContainer";
 import ThemeToggle from "../components/common/ThemeToggle";
+import BrandLogo from "../components/common/BrandLogo";
 import CreateReconciliationModal from "../components/modals/CreateReconciliationModal";
 import ImportExcelModal from "../components/modals/ImportExcelModal";
 import LoginModal from "../components/modals/LoginModal";
@@ -38,14 +39,12 @@ export default function LandingPage() {
             {/* Top Navigation Bar */}
             <header className="landing-header">
                 <div className="landing-header-inner">
-                    <div className="flex items-center gap-3">
-                        <div className="brand-logo-mark">
-                            <span>YC</span>
-                        </div>
-                        <div>
-                            <span className="brand-name">YesCapital</span>
-                            <span className="landing-brand-tag">Finance</span>
-                        </div>
+                    <div
+                        className="cursor-pointer flex items-center"
+                        onClick={() => navigate("/")}
+                        title="YesCapital Home"
+                    >
+                        <BrandLogo height={38} />
                     </div>
 
                     <div className="landing-header-actions">

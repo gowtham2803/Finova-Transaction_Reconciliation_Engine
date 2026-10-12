@@ -2,6 +2,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useApp } from "../../context/AppContext";
 import ToastContainer from "../common/ToastContainer";
 import ThemeToggle from "../common/ThemeToggle";
+import BrandLogo from "../common/BrandLogo";
 import CreateReconciliationModal from "../modals/CreateReconciliationModal";
 import ImportExcelModal from "../modals/ImportExcelModal";
 import LoginModal from "../modals/LoginModal";
@@ -72,17 +73,7 @@ export default function AppLayout() {
                         onClick={() => navigate("/")}
                         title="YesCapital Home"
                     >
-                        <div className="brand-logo-mark">
-                            <span>YC</span>
-                        </div>
-                        <div className="brand-text-block">
-                            <div className="brand-name">
-                                YesCapital
-                            </div>
-                            <div className="brand-product">
-                                Transaction Reconciliation System
-                            </div>
-                        </div>
+                        <BrandLogo height={36} />
                     </div>
 
                     <div className="header-breadcrumbs">

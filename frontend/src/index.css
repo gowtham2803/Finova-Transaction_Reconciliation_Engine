@@ -879,6 +879,25 @@ a {
     gap: 12px;
 }
 
+/* Dynamic App Brand Logo (Dark / Light Mode) */
+.app-brand-container {
+    display: inline-flex;
+    align-items: center;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.app-brand-container:hover {
+    opacity: 0.94;
+}
+
+.app-brand-logo-img {
+    height: 36px;
+    width: auto;
+    object-fit: contain;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
 .brand-text-block {
     display: flex;
     flex-direction: column;
