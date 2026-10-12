@@ -524,7 +524,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                         <input
                             type="text"
                             className="workspace-search-input"
-                            placeholder="Filter transactions by branch or amount..."
+                            placeholder="Filter by branch"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
@@ -604,7 +604,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                     {unsavedChanges.size > 0 && (
                         <div className="unsaved-badge animate-pulse">
                             <span className="unsaved-dot"></span>
-                            {unsavedChanges.size} unsaved change(s)
+                            {unsavedChanges.size} unsaved
                         </div>
                     )}
 
@@ -615,7 +615,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                         disabled={saving}
                     >
                         <Save size={16} />
-                        {saving ? "Saving..." : "Save Transactions"}
+                        {saving ? "Saving" : "Save"}
                     </button>
                 </div>
             </div>
@@ -829,8 +829,14 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                             </button>
                         </div>
                         <div className="modal-body py-2">
-                            <p className="text-xs text-slate-500 mb-2">
-                                Copy cells directly from Microsoft Excel (or Google Sheets) and paste (Ctrl+V) into this box:
+                            <p style={{
+                                fontSize: "13px",
+                                color: "var(--text-secondary)",  /* or a color like "#94a3b8" */
+                                marginBottom: "15px",
+                                lineHeight: "1.5",
+                                fontWeight: "500"
+                            }}>
+                                Copy cells from Microsoft Excel or Google Sheets and paste (Ctrl+V) into this box:
                             </p>
                             <textarea
                                 rows={6}

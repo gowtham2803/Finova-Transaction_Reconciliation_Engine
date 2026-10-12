@@ -48,7 +48,7 @@ export default function ConfirmDeleteModal({
                     <div className="confirm-delete-alert">
                         <AlertTriangle size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
                         <div className="text-xs text-slate-300 leading-relaxed">
-                            Are you sure you want to delete <strong>{count}</strong> selected transaction row{count > 1 ? "s" : ""} from <strong>{sheetTitle}</strong>? This action cannot be undone.
+                            Are you sure you want to delete <strong>{count}</strong> selected row{count > 1 ? "s" : ""} from <strong>{sheetTitle}</strong> ? This action cannot be undone.
                         </div>
                     </div>
 
@@ -71,12 +71,6 @@ export default function ConfirmDeleteModal({
                                 </span>
                             </div>
                         )}
-                        <div className="summary-item">
-                            <span className="summary-item-label">Reconciliation Impact:</span>
-                            <span className="summary-item-val text-emerald-400 text-xs">
-                                ✓ Inter-branch totals & variance will auto-recalculate
-                            </span>
-                        </div>
                     </div>
                 </div>
 

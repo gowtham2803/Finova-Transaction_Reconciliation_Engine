@@ -73,22 +73,8 @@ export default function AddRowsModal({ isOpen, onClose, onAddRows, sheetTitle = 
                 {/* Form Body */}
                 <form onSubmit={handleSubmit} className="modal-form">
                     <div className="modal-body space-y-5">
-                        {/* Guidance Box */}
-                        <div className="add-rows-info-box">
-                            <Info size={16} className="text-blue-400 flex-shrink-0 mt-0.5" />
-                            <p className="text-xs text-slate-300 leading-relaxed">
-                                Specify how many editable rows to insert into the <strong>{sheetTitle}</strong> table. You can enter branch details manually or paste cells directly from Microsoft Excel (Ctrl+V).
-                            </p>
-                        </div>
-
                         {/* Quick Presets */}
                         <div className="presets-section">
-                            <div className="flex items-center justify-between mb-2">
-                                <label className="form-label text-xs uppercase tracking-wider text-slate-400 font-semibold">
-                                    Quick Quantity Presets
-                                </label>
-                                <span className="text-[11px] text-slate-400">Click to apply</span>
-                            </div>
                             <div className="presets-grid">
                                 {presets.map((val) => (
                                     <button
@@ -141,10 +127,6 @@ export default function AddRowsModal({ isOpen, onClose, onAddRows, sheetTitle = 
                                 >
                                     <Plus size={18} />
                                 </button>
-                            </div>
-                            <div className="flex items-center justify-between mt-2 text-[11px] text-slate-400">
-                                <span>Minimum: 1 row</span>
-                                <span>Maximum: 100 rows per batch</span>
                             </div>
                         </div>
                     </div>

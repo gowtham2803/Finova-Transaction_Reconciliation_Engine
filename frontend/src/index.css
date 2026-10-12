@@ -1846,7 +1846,7 @@ a {
     border: 1px solid var(--border-subtle);
     padding: 8px 14px;
     border-radius: var(--radius-md);
-    width: 280px;
+    width: 150px;
 }
 
 .search-icon {
@@ -3231,6 +3231,7 @@ input[type="date"] {
     background: rgba(37, 99, 235, 0.08);
     border: 1px solid rgba(59, 130, 246, 0.22);
     border-radius: var(--radius-md);
+
 }
 
 [data-theme="light"] .add-rows-info-box {
@@ -3243,6 +3244,7 @@ input[type="date"] {
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
     padding: 14px 16px;
+    margin-bottom: 22px;
 }
 
 .presets-grid {
@@ -3293,7 +3295,7 @@ input[type="date"] {
 .add-rows-stepper-wrap {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 30px;
     margin-top: 6px;
 }
 
@@ -3357,6 +3359,7 @@ input[type="date"] {
     background: rgba(244, 63, 94, 0.08);
     border: 1px solid rgba(244, 63, 94, 0.25);
     border-radius: var(--radius-md);
+    margin-bottom: 15px;
 }
 
 [data-theme="light"] .confirm-delete-alert {
