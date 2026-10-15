@@ -1,11 +1,18 @@
 
 package com.company.reconciliation.transaction.service;
 
+import com.company.reconciliation.audit.repository.AuditLogRepository;
 import com.company.reconciliation.audit.service.AuditService;
 import com.company.reconciliation.branch.entity.Branch;
 import com.company.reconciliation.branch.repository.BranchRepository;
 import com.company.reconciliation.reconciliation.entity.Reconciliation;
+import com.company.reconciliation.reconciliation.error.ReconciliationError;
+import com.company.reconciliation.reconciliation.error.repository.ReconciliationErrorRepository;
+import com.company.reconciliation.reconciliation.error.resolution.ErrorResolution;
+import com.company.reconciliation.reconciliation.error.resolution.repository.ErrorResolutionRepository;
 import com.company.reconciliation.reconciliation.repository.ReconciliationRepository;
+import com.company.reconciliation.reconciliation.result.ReconciliationResult;
+import com.company.reconciliation.reconciliation.result.repository.ReconciliationResultRepository;
 import com.company.reconciliation.transaction.dto.TransactionCreateRequest;
 import com.company.reconciliation.transaction.dto.TransactionFilterRequest;
 import com.company.reconciliation.transaction.dto.TransactionResponse;
@@ -30,17 +37,29 @@ public class TransactionServiceImpl implements TransactionService {
     private final BranchRepository branchRepository;
     private final ReconciliationRepository reconciliationRepository;
     private final AuditService auditService;
+    private final AuditLogRepository auditLogRepository;
+    private final ReconciliationResultRepository reconciliationResultRepository;
+    private final ReconciliationErrorRepository reconciliationErrorRepository;
+    private final ErrorResolutionRepository errorResolutionRepository;
 
     public TransactionServiceImpl(
             TransactionRepository transactionRepository,
             BranchRepository branchRepository,
             ReconciliationRepository reconciliationRepository,
-            AuditService auditService
+            AuditService auditService,
+            AuditLogRepository auditLogRepository,
+            ReconciliationResultRepository reconciliationResultRepository,
+            ReconciliationErrorRepository reconciliationErrorRepository,
+            ErrorResolutionRepository errorResolutionRepository
     ) {
         this.transactionRepository = transactionRepository;
         this.branchRepository = branchRepository;
         this.reconciliationRepository = reconciliationRepository;
         this.auditService = auditService;
+        this.auditLogRepository = auditLogRepository;
+        this.reconciliationResultRepository = reconciliationResultRepository;
+        this.reconciliationErrorRepository = reconciliationErrorRepository;
+        this.errorResolutionRepository = errorResolutionRepository;
     }
 
     // 1. Create a single transaction
@@ -430,5 +449,58 @@ public class TransactionServiceImpl implements TransactionService {
                 "Transaction updated",
                 null
         );
+    }
+
+    @Override
+    @Transactional
+    public void deleteTransaction(Long transactionId) {
+        if (transactionId == null || transactionId <= 0) {
+            throw new IllegalArgumentException("Transaction ID must be positive");
+        }
+        deleteTransactions(List.of(transactionId));
+    }
+
+    @Override
+    @Transactional
+    public void deleteTransactions(List<Long> transactionIds) {
+        if (transactionIds == null || transactionIds.isEmpty()) {
+            return;
+        }
+
+        List<Long> validIds = transactionIds.stream()
+                .filter(id -> id != null && id > 0)
+                .distinct()
+                .toList();
+
+        if (validIds.isEmpty()) {
+            return;
+        }
+
+        // 1. Detach audit logs so foreign key constraints do not fail
+        auditLogRepository.detachTransactions(validIds);
+        auditLogRepository.flush();
+
+        // 2. Cascade delete linked reconciliation results, errors, and error resolutions
+        List<ReconciliationResult> linkedResults = reconciliationResultRepository.findByTransactionIds(validIds);
+        if (!linkedResults.isEmpty()) {
+            for (ReconciliationResult result : linkedResults) {
+                List<ReconciliationError> errors = reconciliationErrorRepository.findByReconciliationResultId(result.getId());
+                for (ReconciliationError error : errors) {
+                    List<ErrorResolution> resolutions = errorResolutionRepository.findByErrorId(error.getId());
+                    if (!resolutions.isEmpty()) {
+                        errorResolutionRepository.deleteAllInBatch(resolutions);
+                    }
+                }
+                if (!errors.isEmpty()) {
+                    reconciliationErrorRepository.deleteAllInBatch(errors);
+                }
+            }
+            reconciliationResultRepository.deleteAllInBatch(linkedResults);
+            reconciliationResultRepository.flush();
+        }
+
+        // 3. Delete transactions
+        transactionRepository.deleteAllById(validIds);
+        transactionRepository.flush();
     }
 }

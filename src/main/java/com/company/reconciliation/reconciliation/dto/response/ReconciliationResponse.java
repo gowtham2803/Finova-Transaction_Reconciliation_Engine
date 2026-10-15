@@ -6,6 +6,7 @@ public class ReconciliationResponse {
 
     private Long id;
     private String reconciliationCode;
+    private String reconciliationName;
     private Long createdByUserId;
     private String createdByUsername;
     private String status;
@@ -29,6 +30,14 @@ public class ReconciliationResponse {
 
     public void setReconciliationCode(String reconciliationCode) {
         this.reconciliationCode = reconciliationCode;
+    }
+
+    public String getReconciliationName() {
+        return reconciliationName;
+    }
+
+    public void setReconciliationName(String reconciliationName) {
+        this.reconciliationName = reconciliationName;
     }
 
     public Long getCreatedByUserId() {

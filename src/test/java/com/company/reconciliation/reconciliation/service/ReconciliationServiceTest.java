@@ -237,7 +237,7 @@ class ReconciliationServiceTest {
 
         ReconciliationResult savedResult = resultCaptor.getValue();
 
-        assertEquals("ISSUE", savedResult.getMatchStatus());
+        assertEquals("UNMATCHED", savedResult.getMatchStatus());
         assertEquals("MISSING_M_OUT", savedResult.getErrorType());
         assertEquals(
                 "M Out transaction is missing",
@@ -280,6 +280,84 @@ class ReconciliationServiceTest {
                 eq("Reconciliation execution completed"),
                 eq((String) null)
         );
+    }
+
+    @Test
+    void reconcile_shouldSaveMatchedTransactionWithIssue_asSingleResult() {
+
+        Long reconciliationId = 4L;
+
+        Reconciliation reconciliation = mock(Reconciliation.class);
+        User user = mock(User.class);
+
+        when(reconciliation.getId()).thenReturn(reconciliationId);
+        when(user.getId()).thenReturn(1L);
+        when(reconciliation.getCreatedBy()).thenReturn(user);
+        when(reconciliation.getStatus()).thenReturn("PENDING");
+        when(reconciliation.getStartedAt()).thenReturn(null);
+
+        when(reconciliationRepository.findById(reconciliationId))
+                .thenReturn(Optional.of(reconciliation));
+
+        Transaction mIn = createTransaction(103L, "M_IN", 10L, 20L);
+        Transaction mOut = createTransaction(203L, "M_OUT", 10L, 20L);
+
+        when(transactionRepository.findByReconciliationId(reconciliationId))
+                .thenReturn(List.of(mIn, mOut));
+
+        NormalizedTransaction normMIn = new NormalizedTransaction(
+                103L, 10L, 20L, new BigDecimal("200.00"), new BigDecimal("10.00"), "M_IN"
+        );
+        NormalizedTransaction normMOut = new NormalizedTransaction(
+                203L, 10L, 20L, new BigDecimal("200.00"), new BigDecimal("10.00"), "M_OUT"
+        );
+
+        MatchingKey key = new MatchingKey(10L, 20L, new BigDecimal("200.00"));
+        ReconciliationMatch match = new ReconciliationMatch(key, normMIn, normMOut);
+
+        ReconciliationIssue issue = new ReconciliationIssue(
+                ReconciliationIssueType.COMMISSION_BOTH_SIDES,
+                normMIn,
+                normMOut,
+                "Commission was collected on both M In and M Out."
+        );
+
+        ReconciliationEngineResult engineResult = new ReconciliationEngineResult(
+                List.of(match),
+                List.of(issue)
+        );
+
+        when(reconciliationEngine.reconcile(anyList(), anyList()))
+                .thenReturn(engineResult);
+
+        when(reconciliationResultRepository.save(any(ReconciliationResult.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        ReconciliationEngineResult result = reconciliationService.reconcile(reconciliationId);
+
+        ArgumentCaptor<ReconciliationResult> resultCaptor =
+                ArgumentCaptor.forClass(ReconciliationResult.class);
+
+        // Verify save was called EXACTLY ONCE (single row for this matched pair with issue)
+        verify(reconciliationResultRepository, times(1))
+                .save(resultCaptor.capture());
+
+        ReconciliationResult savedResult = resultCaptor.getValue();
+        assertEquals("ISSUE", savedResult.getMatchStatus());
+        assertEquals("COMMISSION_BOTH_SIDES", savedResult.getErrorType());
+        assertEquals("Commission was collected on both M In and M Out.", savedResult.getErrorReason());
+        assertSame(mIn, savedResult.getmInTransaction());
+        assertSame(mOut, savedResult.getmOutTransaction());
+
+        ArgumentCaptor<ReconciliationError> errorCaptor =
+                ArgumentCaptor.forClass(ReconciliationError.class);
+        verify(reconciliationErrorRepository, times(1))
+                .save(errorCaptor.capture());
+
+        ReconciliationError savedError = errorCaptor.getValue();
+        assertSame(savedResult, savedError.getReconciliationResult());
+        assertEquals("COMMISSION_BOTH_SIDES", savedError.getErrorType());
+        assertEquals("OPEN", savedError.getStatus());
     }
 
     @Test

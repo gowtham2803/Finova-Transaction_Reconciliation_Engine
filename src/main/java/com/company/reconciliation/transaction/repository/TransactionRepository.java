@@ -13,4 +13,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
             Long reconciliationId,
             String sourceSheet
     );
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("DELETE FROM Transaction t WHERE t.reconciliation.id = :reconciliationId")
+    void deleteByReconciliationId(@org.springframework.data.repository.query.Param("reconciliationId") Long reconciliationId);
 }

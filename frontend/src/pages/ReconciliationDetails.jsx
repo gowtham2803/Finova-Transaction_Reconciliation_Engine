@@ -6,7 +6,8 @@ import {
     getReconciliationResults,
     runReconciliation,
     resolveError,
-    getAuditLogs
+    getAuditLogs,
+    getBranches
 } from "../services/mockApi";
 import { useApp } from "../context/AppContext";
 import TransactionWorkspace from "../components/common/TransactionWorkspace";
@@ -169,6 +170,7 @@ export default function ReconciliationDetails() {
     const [results, setResults] = useState([]);
     const [errors, setErrors] = useState([]);
     const [auditLogs, setAuditLogs] = useState([]);
+    const [branches, setBranches] = useState([]);
     const [loading, setLoading] = useState(true);
 
     // Active Tab directly derived from URL query param
@@ -189,17 +191,21 @@ export default function ReconciliationDetails() {
     const loadData = useCallback(async () => {
         try {
             setLoading(true);
-            const [recData, resData, errData, logsData] = await Promise.all([
+            const [recData, resData, errData, logsData, branchesData] = await Promise.all([
                 getReconciliation(reconciliationId),
                 getReconciliationResults(reconciliationId),
                 getReconciliationErrors(reconciliationId),
-                getAuditLogs({ reconciliationId })
+                getAuditLogs({ reconciliationId }),
+                getBranches().catch(() => [])
             ]);
 
             setReconciliation(recData);
             setResults(Array.isArray(resData) ? resData : []);
             setErrors(Array.isArray(errData) ? errData : []);
             setAuditLogs(Array.isArray(logsData) ? logsData : []);
+            if (Array.isArray(branchesData)) {
+                setBranches(branchesData);
+            }
         } catch (err) {
             addToast({
                 type: "error",
@@ -305,6 +311,158 @@ export default function ReconciliationDetails() {
         });
     };
 
+    const branchMap = useMemo(() => {
+        const map = {
+            1: "Chennai",
+            2: "Madurai",
+            3: "Coimbatore",
+            4: "Trichy",
+            5: "Salem"
+        };
+        branches.forEach((b) => {
+            if (b.id) map[b.id] = b.name;
+            if (b.code) map[b.code] = b.name;
+        });
+        return map;
+    }, [branches]);
+
+    const formatActionLabel = (action) => {
+        if (!action) return "Audit Log";
+        const map = {
+            TRANSACTION_CREATED: "Transaction Created",
+            TRANSACTION_UPDATED: "Transaction Updated",
+            RECONCILIATION_RERUN: "Engine Re-run",
+            RECONCILIATION_EXECUTED: "Engine Executed",
+            ERROR_RESOLVED: "Error Resolved",
+            RECONCILIATION_CREATED: "Reconciliation Created"
+        };
+        return map[action] || action.replace(/_/g, " ");
+    };
+
+    const renderAuditValue = (val, fieldName, action) => {
+        if (val === null || val === undefined || val === "" || val === "—" || val === "null" || val === "NULL") {
+            return <span className="audit-val-empty">—</span>;
+        }
+
+        const strVal = String(val).trim();
+
+        // 1. Composite key-value string (e.g. sourceSheet=M_IN, fromBranchId=4, toBranchId=2, amount=50000, commission=50)
+        if (strVal.includes("sourceSheet=") || strVal.includes("fromBranchId=") || strVal.includes("toBranchId=")) {
+            const pairs = {};
+            strVal.split(",").forEach((part) => {
+                const idx = part.indexOf("=");
+                if (idx !== -1) {
+                    const k = part.substring(0, idx).trim();
+                    const v = part.substring(idx + 1).trim();
+                    pairs[k] = v;
+                }
+            });
+
+            const sheet = pairs.sourceSheet;
+            const fromId = pairs.fromBranchId;
+            const toId = pairs.toBranchId;
+            const amt = pairs.amount;
+            const comm = pairs.commission;
+
+            const fromName = fromId ? (branchMap[fromId] || branchMap[Number(fromId)] || `Branch #${fromId}`) : null;
+            const toName = toId ? (branchMap[toId] || branchMap[Number(toId)] || `Branch #${toId}`) : null;
+
+            return (
+                <div className="audit-detail-pill-group">
+                    {sheet && (
+                        <span className={`audit-sheet-badge ${sheet === "M_IN" ? "sheet-min" : "sheet-mout"}`}>
+                            {sheet === "M_IN" ? "M In" : sheet === "M_OUT" ? "M Out" : sheet}
+                        </span>
+                    )}
+                    {(fromName || toName) && (
+                        <span className="audit-route-badge">
+                            <span className="route-from">{fromName || "—"}</span>
+                            <span className="route-arrow">→</span>
+                            <span className="route-to">{toName || "—"}</span>
+                        </span>
+                    )}
+                    {amt !== undefined && (
+                        <span className="audit-amount-badge">
+                            ₹{Number(amt).toLocaleString("en-IN")}
+                        </span>
+                    )}
+                    {comm !== undefined && (
+                        <span className="audit-comm-badge">
+                            Comm: ₹{Number(comm).toLocaleString("en-IN")}
+                        </span>
+                    )}
+                </div>
+            );
+        }
+
+        // 2. Status values
+        const upper = strVal.toUpperCase();
+        if (
+            fieldName === "status" ||
+            ["ISSUES_FOUND", "RECONCILED", "PENDING", "RESOLVED", "COMPLETED", "FAILED", "MATCHED", "UNMATCHED"].includes(upper)
+        ) {
+            const statusMap = {
+                ISSUES_FOUND: { label: "Issues Found", cls: "status-issues" },
+                RECONCILED: { label: "Reconciled", cls: "status-reconciled" },
+                PENDING: { label: "Pending", cls: "status-pending" },
+                RESOLVED: { label: "Resolved", cls: "status-resolved" },
+                COMPLETED: { label: "Completed", cls: "status-reconciled" },
+                FAILED: { label: "Failed", cls: "status-failed" },
+                MATCHED: { label: "Matched", cls: "status-reconciled" },
+                UNMATCHED: { label: "Unmatched", cls: "status-issues" }
+            };
+            const s = statusMap[upper] || { label: strVal, cls: "status-neutral" };
+            return <span className={`audit-status-badge ${s.cls}`}>{s.label}</span>;
+        }
+
+        // 3. Amount values
+        if (fieldName === "amount") {
+            const num = Number(strVal);
+            return (
+                <span className="audit-amount-badge">
+                    ₹{isNaN(num) ? strVal : num.toLocaleString("en-IN")}
+                </span>
+            );
+        }
+
+        // 4. Commission values
+        if (fieldName === "commission") {
+            const num = Number(strVal);
+            return (
+                <span className="audit-comm-badge">
+                    Comm: ₹{isNaN(num) ? strVal : num.toLocaleString("en-IN")}
+                </span>
+            );
+        }
+
+        // 5. Branch ID fields
+        if (fieldName === "fromBranchId" || fieldName === "toBranchId" || fieldName === "branchId" || fieldName === "branch") {
+            const bName = branchMap[strVal] || branchMap[Number(strVal)] || `Branch #${strVal}`;
+            return <span className="audit-branch-badge">{bName}</span>;
+        }
+
+        // 6. Version
+        if (fieldName === "version") {
+            return <span className="audit-version-badge">Version {strVal}</span>;
+        }
+
+        // 7. Sheet
+        if (fieldName === "sourceSheet") {
+            return (
+                <span className={`audit-sheet-badge ${strVal === "M_IN" ? "sheet-min" : "sheet-mout"}`}>
+                    {strVal === "M_IN" ? "M In" : strVal === "M_OUT" ? "M Out" : strVal}
+                </span>
+            );
+        }
+
+        // 8. Decimal values formatted as currency if numeric
+        if (!isNaN(Number(strVal)) && strVal.includes(".") && Number(strVal) >= 100) {
+            return <span className="audit-amount-badge">₹{Number(strVal).toLocaleString("en-IN")}</span>;
+        }
+
+        return <span className="audit-plain-val">{strVal}</span>;
+    };
+
     // Filtered results
     const filteredResults = useMemo(() => {
         return results.filter((r) => {
@@ -324,19 +482,29 @@ export default function ReconciliationDetails() {
 
     // Filtered errors
     const filteredErrors = useMemo(() => {
-        return errors.filter((e) => {
-            if (errorsFilter !== "ALL" && e.status !== errorsFilter) return false;
-            if (errorsSearch) {
-                const q = errorsSearch.toLowerCase();
-                return (
-                    e.description?.toLowerCase().includes(q) ||
-                    e.id?.toLowerCase().includes(q) ||
-                    e.transactionInfo?.toLowerCase().includes(q) ||
-                    e.errorType?.toLowerCase().includes(q)
-                );
-            }
-            return true;
-        });
+        return errors
+            .filter((e) => {
+                if (errorsFilter !== "ALL" && e.status !== errorsFilter) return false;
+                if (errorsSearch) {
+                    const q = errorsSearch.toLowerCase();
+                    return (
+                        e.description?.toLowerCase().includes(q) ||
+                        String(e.id)?.toLowerCase().includes(q) ||
+                        e.transactionInfo?.toLowerCase().includes(q) ||
+                        e.errorType?.toLowerCase().includes(q) ||
+                        (e.mInRow && String(e.mInRow).includes(q)) ||
+                        (e.mOutRow && String(e.mOutRow).includes(q)) ||
+                        (e.rowDisplay && e.rowDisplay.toLowerCase().includes(q))
+                    );
+                }
+                return true;
+            })
+            .sort((a, b) => {
+                const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                if (timeB !== timeA) return timeB - timeA;
+                return Number(b.id) - Number(a.id);
+            });
     }, [errors, errorsFilter, errorsSearch]);
 
     if (loading && !reconciliation) {
@@ -616,9 +784,9 @@ export default function ReconciliationDetails() {
             {/* TAB CONTENT: RESULTS */}
             {activeTab === "results" && (
                 <div className="tab-pane-content">
-                    <div className="content-card mb-4 p-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="search-input-wrapper max-w-sm flex-1">
+                    <div className="content-card tab-toolbar-card">
+                        <div className="tab-toolbar-row">
+                            <div className="tab-search-wrapper">
                                 <Search size={15} className="search-icon" />
                                 <input
                                     type="text"
@@ -629,8 +797,8 @@ export default function ReconciliationDetails() {
                                 />
                             </div>
 
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs font-semibold text-slate-500">Filter:</span>
+                            <div className="tab-filters-group">
+                                <span className="tab-filter-label">Filter:</span>
                                 {[
                                     { id: "ALL", label: `All (${results.length})` },
                                     { id: "MATCHED", label: `Matched (${results.filter((r) => r.matchStatus === "MATCHED").length})` },
@@ -657,8 +825,8 @@ export default function ReconciliationDetails() {
                                     <tr>
                                         <th>#</th>
                                         <th>Transaction Hub Route</th>
-                                        <th>M In ID</th>
-                                        <th>M Out ID</th>
+{/*                                         <th>M In ID</th> */}
+{/*                                         <th>M Out ID</th> */}
                                         <th className="text-right">Amount (₹)</th>
                                         <th className="text-right">M In Comm</th>
                                         <th className="text-right">M Out Comm</th>
@@ -681,8 +849,8 @@ export default function ReconciliationDetails() {
                                                 <td className="font-semibold text-slate-800">
                                                     {r.sourceDescription}
                                                 </td>
-                                                <td className="font-mono text-xs">{r.mInTransactionId || "—"}</td>
-                                                <td className="font-mono text-xs">{r.mOutTransactionId || "—"}</td>
+{/*                                                 <td className="font-mono text-xs">{r.mInTransactionId || "—"}</td> */}
+{/*                                                 <td className="font-mono text-xs">{r.mOutTransactionId || "—"}</td> */}
                                                 <td className="text-right font-medium text-slate-800">
                                                     ₹{Number(r.amount).toLocaleString("en-IN")}
                                                 </td>
@@ -698,6 +866,8 @@ export default function ReconciliationDetails() {
                                                             ? "status-success"
                                                             : r.matchStatus === "ISSUE"
                                                             ? "status-error"
+                                                            : r.matchStatus === "UNMATCHED"
+                                                            ? "status-warning"
                                                             : "status-pending"
                                                     }`}>
                                                         {r.matchStatus}
@@ -705,7 +875,11 @@ export default function ReconciliationDetails() {
                                                 </td>
                                                 <td>
                                                     {r.errorType ? (
-                                                        <span className="text-xs font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                                                        <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${
+                                                            r.matchStatus === "UNMATCHED"
+                                                                ? "text-amber-500 bg-amber-500/10 border-amber-500/30"
+                                                                : "text-rose-600 bg-rose-50 border-rose-200"
+                                                        }`}>
                                                             {r.errorType}
                                                         </span>
                                                     ) : (
@@ -728,21 +902,21 @@ export default function ReconciliationDetails() {
             {/* TAB CONTENT: ERRORS */}
             {activeTab === "errors" && (
                 <div className="tab-pane-content">
-                    <div className="content-card mb-4 p-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="search-input-wrapper max-w-sm flex-1">
+                    <div className="content-card tab-toolbar-card">
+                        <div className="tab-toolbar-row">
+                            <div className="tab-search-wrapper">
                                 <Search size={15} className="search-icon" />
                                 <input
                                     type="text"
                                     className="workspace-search-input"
-                                    placeholder="Search errors by ID, type or text..."
+                                    placeholder="Search errors by row, type or text..."
                                     value={errorsSearch}
                                     onChange={(e) => setErrorsSearch(e.target.value)}
                                 />
                             </div>
 
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs font-semibold text-slate-500">Filter Status:</span>
+                            <div className="tab-filters-group">
+                                <span className="tab-filter-label">Filter Status:</span>
                                 {[
                                     { id: "ALL", label: `All (${errors.length})` },
                                     { id: "OPEN", label: `Open (${openErrorsCount})` },
@@ -766,10 +940,9 @@ export default function ReconciliationDetails() {
                             <table className="enterprise-data-table">
                                 <thead>
                                     <tr>
-                                        <th>Error ID</th>
+                                        <th className="error-row-cell whitespace-nowrap">Row</th>
                                         <th>Transaction Info</th>
                                         <th>Error Type</th>
-                                        <th>Error Code</th>
                                         <th>Description</th>
                                         <th>Status</th>
                                         <th>Created</th>
@@ -779,15 +952,31 @@ export default function ReconciliationDetails() {
                                 <tbody>
                                     {filteredErrors.length === 0 ? (
                                         <tr>
-                                            <td colSpan={8} className="table-empty-cell">
+                                            <td colSpan={7} className="table-empty-cell">
                                                 No errors found matching filter criteria.
                                             </td>
                                         </tr>
                                     ) : (
                                         filteredErrors.map((err) => (
                                             <tr key={err.id}>
-                                                <td className="font-mono text-xs font-semibold text-slate-900">
-                                                    {err.id}
+                                                <td className="error-row-cell whitespace-nowrap">
+                                                    <div className="error-row-stack">
+                                                        {err.mInRow ? (
+                                                            <div className="error-row-line">
+                                                                <span className="error-row-label-in">M In:</span>
+                                                                <span className="error-row-num">{err.mInRow}</span>
+                                                            </div>
+                                                        ) : null}
+                                                        {err.mOutRow ? (
+                                                            <div className="error-row-line">
+                                                                <span className="error-row-label-out">M Out:</span>
+                                                                <span className="error-row-num">{err.mOutRow}</span>
+                                                            </div>
+                                                        ) : null}
+                                                        {!err.mInRow && !err.mOutRow ? (
+                                                            <span className="text-slate-400">—</span>
+                                                        ) : null}
+                                                    </div>
                                                 </td>
                                                 <td className="font-medium text-slate-800 text-xs">
                                                     {err.transactionInfo}
@@ -796,9 +985,6 @@ export default function ReconciliationDetails() {
                                                     <span className="error-type-badge">
                                                         {err.errorType}
                                                     </span>
-                                                </td>
-                                                <td className="font-mono text-[11px] text-slate-500">
-                                                    {err.errorCode}
                                                 </td>
                                                 <td className="text-xs text-slate-700 max-w-sm">
                                                     <div>{err.description}</div>
@@ -858,50 +1044,42 @@ export default function ReconciliationDetails() {
                         </div>
 
                         <div className="table-responsive-container">
-                            <table className="enterprise-data-table">
+                            <table className="enterprise-data-table audit-history-table">
                                 <thead>
                                     <tr>
-                                        <th>Timestamp</th>
-                                        <th>User</th>
-                                        <th>Action</th>
-                                        <th>Entity</th>
+                                        <th style={{ width: "175px" }}>Timestamp</th>
+                                        <th style={{ width: "130px" }}>User</th>
+                                        <th style={{ width: "190px" }}>Action</th>
                                         <th>Old Value</th>
                                         <th>New Value</th>
-                                        <th>Description</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {auditLogs.length === 0 ? (
                                         <tr>
-                                            <td colSpan={7} className="table-empty-cell">
+                                            <td colSpan={5} className="table-empty-cell">
                                                 No audit history logs recorded yet.
                                             </td>
                                         </tr>
                                     ) : (
                                         auditLogs.map((log) => (
                                             <tr key={log.id}>
-                                                <td className="text-xs font-mono text-slate-500 whitespace-nowrap">
+                                                <td className="text-xs font-mono text-slate-400 whitespace-nowrap">
                                                     {formatDate(log.createdAt)}
                                                 </td>
                                                 <td>
-                                                    <div className="text-xs font-semibold text-slate-800">{log.user}</div>
+                                                    <div className="text-xs font-semibold text-slate-200">{log.user}</div>
                                                 </td>
                                                 <td>
-                                                    <span className="audit-action-badge">
-                                                        {log.action}
+                                                    <span className={`audit-action-badge ${log.action?.toLowerCase()}`}>
+                                                        {formatActionLabel(log.action)}
                                                     </span>
                                                 </td>
-                                                <td className="text-xs text-slate-600">
-                                                    {log.entity} {log.entityId ? `#${log.entityId}` : ""}
+                                                <td className="audit-val-cell">
+                                                    {renderAuditValue(log.oldValue, log.fieldName, log.action)}
                                                 </td>
-                                                <td className="text-xs text-slate-500 max-w-xs truncate">
-                                                    {log.oldValue || "—"}
-                                                </td>
-                                                <td className="text-xs text-slate-800 font-medium max-w-xs truncate">
-                                                    {log.newValue || "—"}
-                                                </td>
-                                                <td className="text-xs text-slate-600">
-                                                    {log.description}
+                                                <td className="audit-val-cell">
+                                                    {renderAuditValue(log.newValue, log.fieldName, log.action)}
                                                 </td>
                                             </tr>
                                         ))

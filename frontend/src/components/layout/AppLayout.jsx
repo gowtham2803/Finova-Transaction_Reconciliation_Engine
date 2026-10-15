@@ -11,9 +11,7 @@ import {
     ArrowLeftRight,
     AlertOctagon,
     History,
-    Plus,
-    Bell,
-    Database,
+    ShieldCheck,
     LogIn,
     LogOut,
     ChevronRight
@@ -83,24 +81,8 @@ export default function AppLayout() {
                 </div>
 
                 <div className="app-header-right">
-                    {/* Primary Fast Action */}
-                    <button
-                        type="button"
-                        className="header-create-btn"
-                        onClick={() => openCreateModal("new")}
-                    >
-                        <Plus size={15} />
-                        <span>Create Reconciliation</span>
-                    </button>
-
                     {/* Theme Toggle (Dark / Light) */}
                     <ThemeToggle />
-
-                    {/* Notification Bell */}
-                    <div className="header-action-icon" title="Notifications">
-                        <Bell size={18} />
-                        <span className="notification-badge-dot"></span>
-                    </div>
 
                     {/* User profile dropdown / login trigger */}
                     {isAuthenticated && currentUser ? (
@@ -164,21 +146,15 @@ export default function AppLayout() {
 
                     {/* Bottom Status Card */}
                     <div className="sidebar-system-footer">
-                        <div className="system-status-indicator">
-                            <div className="status-pulse-dot"></div>
-                            <div>
-                                <div className="system-status-mode">Enterprise Engine</div>
-                                <div className="system-status-sub">Spring Boot &amp; MySQL</div>
-                            </div>
-                        </div>
-
-                        <div className="system-engine-details">
-                            <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                                <Database size={12} className="text-emerald-500" />
-                                <span>Port 8088 Connected</span>
-                            </div>
-                            <div className="text-[10px] text-slate-400 mt-1">
-                                YesCapital v2.4 Enterprise
+                        <div className="sidebar-status-card">
+                            <div className="sidebar-status-header">
+                                <div className="status-live-indicator">
+                                    <div className="status-dot-wrapper">
+                                        <span className="status-ping-ring"></span>
+                                        <span className="status-dot-core"></span>
+                                    </div>
+                                    <span className="status-live-text">System Active</span>
+                                </div>
                             </div>
                         </div>
                     </div>

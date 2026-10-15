@@ -29,4 +29,8 @@ public interface TransactionService {
     List<TransactionResponse> getTransactionsByFilter(
             TransactionFilterRequest filter
     );
+
+    void deleteTransaction(Long transactionId);
+
+    void deleteTransactions(List<Long> transactionIds);
 }

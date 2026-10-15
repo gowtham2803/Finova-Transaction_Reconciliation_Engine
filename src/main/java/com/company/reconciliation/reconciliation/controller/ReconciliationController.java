@@ -106,4 +106,17 @@ public class ReconciliationController {
                 reconciliationService.getErrorsByReconciliation(id, status)
         );
     }
+
+    // 7. Check if reconciliation name already exists (case-insensitive)
+    @GetMapping("/check-name")
+    public ResponseEntity<Boolean> checkNameExists(@RequestParam String name) {
+        return ResponseEntity.ok(managementService.existsByName(name));
+    }
+
+    // 8. Delete reconciliation by ID
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteReconciliation(@PathVariable Long id) {
+        managementService.deleteReconciliation(id);
+        return ResponseEntity.noContent().build();
+    }
 }

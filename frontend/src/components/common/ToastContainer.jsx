@@ -9,21 +9,21 @@ export default function ToastContainer() {
     const getIcon = (type) => {
         switch (type) {
             case "success":
-                return <CheckCircle2 className="toast-icon text-emerald-500" size={20} />;
+                return <CheckCircle2 className="toast-icon text-emerald-400" size={18} />;
             case "warning":
-                return <AlertTriangle className="toast-icon text-amber-500" size={20} />;
+                return <AlertTriangle className="toast-icon text-amber-400" size={18} />;
             case "error":
-                return <AlertCircle className="toast-icon text-rose-500" size={20} />;
+                return <AlertCircle className="toast-icon text-rose-400" size={18} />;
             default:
-                return <Info className="toast-icon text-blue-500" size={20} />;
+                return <Info className="toast-icon text-blue-400" size={18} />;
         }
     };
 
     return (
         <div className="toast-container" role="region" aria-live="polite">
             {toasts.map((toast) => (
-                <div key={toast.id} className={`toast-card toast-${toast.type}`}>
-                    <div className="toast-icon-wrapper">
+                <div key={toast.id} className={`toast-card toast-${toast.type || "info"}`}>
+                    <div className={`toast-icon-wrapper toast-icon-${toast.type || "info"}`}>
                         {getIcon(toast.type)}
                     </div>
                     <div className="toast-content">
@@ -36,7 +36,7 @@ export default function ToastContainer() {
                         onClick={() => removeToast(toast.id)}
                         aria-label="Close notification"
                     >
-                        <X size={15} />
+                        <X size={14} />
                     </button>
                 </div>
             ))}

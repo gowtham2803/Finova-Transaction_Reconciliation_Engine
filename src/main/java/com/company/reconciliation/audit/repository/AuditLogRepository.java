@@ -49,4 +49,29 @@ public interface AuditLogRepository
             @Param("endDate") LocalDateTime endDate,
             Pageable pageable
     );
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("UPDATE AuditLog a SET a.transaction = null WHERE a.transaction.id IN :transactionIds")
+    void detachTransactions(@Param("transactionIds") List<Long> transactionIds);
+
+    @Query("""
+            SELECT a.reconciliation.id, COUNT(a.id), MAX(a.createdAt)
+            FROM AuditLog a
+            WHERE a.reconciliation.id IS NOT NULL
+              AND (:action IS NULL OR a.action = :action)
+            GROUP BY a.reconciliation.id
+            ORDER BY MAX(a.createdAt) DESC
+            """)
+    List<Object[]> getReconciliationAuditSummaryAggregates(@Param("action") String action);
+
+    AuditLog findFirstByReconciliationIdOrderByCreatedAtDescIdDesc(Long reconciliationId);
+
+    AuditLog findFirstByReconciliationIdAndActionOrderByCreatedAtDescIdDesc(
+            Long reconciliationId,
+            String action
+    );
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("DELETE FROM AuditLog a WHERE a.reconciliation.id = :reconciliationId")
+    void deleteByReconciliationId(@Param("reconciliationId") Long reconciliationId);
 }

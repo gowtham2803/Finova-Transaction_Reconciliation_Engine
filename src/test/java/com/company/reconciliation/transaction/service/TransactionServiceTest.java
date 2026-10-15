@@ -1,11 +1,15 @@
 
 package com.company.reconciliation.transaction.service;
 
+import com.company.reconciliation.audit.repository.AuditLogRepository;
 import com.company.reconciliation.audit.service.AuditService;
 import com.company.reconciliation.branch.entity.Branch;
 import com.company.reconciliation.branch.repository.BranchRepository;
 import com.company.reconciliation.reconciliation.entity.Reconciliation;
+import com.company.reconciliation.reconciliation.error.repository.ReconciliationErrorRepository;
+import com.company.reconciliation.reconciliation.error.resolution.repository.ErrorResolutionRepository;
 import com.company.reconciliation.reconciliation.repository.ReconciliationRepository;
+import com.company.reconciliation.reconciliation.result.repository.ReconciliationResultRepository;
 import com.company.reconciliation.transaction.dto.TransactionCreateRequest;
 import com.company.reconciliation.transaction.dto.TransactionResponse;
 import com.company.reconciliation.transaction.entity.Transaction;
@@ -40,6 +44,18 @@ class TransactionServiceTest {
 
     @Mock
     private AuditService auditService;
+
+    @Mock
+    private AuditLogRepository auditLogRepository;
+
+    @Mock
+    private ReconciliationResultRepository reconciliationResultRepository;
+
+    @Mock
+    private ReconciliationErrorRepository reconciliationErrorRepository;
+
+    @Mock
+    private ErrorResolutionRepository errorResolutionRepository;
 
     @InjectMocks
     private TransactionServiceImpl transactionService;
@@ -186,6 +202,32 @@ class TransactionServiceTest {
                 .save(any(Transaction.class));
 
         verifyNoInteractions(auditService);
+    }
+
+    @Test
+    void deleteTransaction_withValidId_shouldDetachAuditAndCascadeDelete() {
+        when(reconciliationResultRepository.findByTransactionIds(List.of(1L)))
+                .thenReturn(List.of());
+
+        transactionService.deleteTransaction(1L);
+
+        verify(auditLogRepository).detachTransactions(List.of(1L));
+        verify(transactionRepository).deleteAllById(List.of(1L));
+    }
+
+    @Test
+    void deleteTransaction_withInvalidId_shouldThrowException() {
+        assertThrows(IllegalArgumentException.class, () -> transactionService.deleteTransaction(null));
+        assertThrows(IllegalArgumentException.class, () -> transactionService.deleteTransaction(-1L));
+    }
+
+    @Test
+    void deleteTransactions_withEmptyList_shouldDoNothing() {
+        transactionService.deleteTransactions(null);
+        transactionService.deleteTransactions(List.of());
+
+        verifyNoInteractions(auditLogRepository);
+        verifyNoInteractions(transactionRepository);
     }
 
     private TransactionCreateRequest createRequest() {

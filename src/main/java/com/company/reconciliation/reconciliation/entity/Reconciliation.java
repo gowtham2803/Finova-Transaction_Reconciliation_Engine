@@ -16,6 +16,9 @@ public class Reconciliation {
     @Column(name = "reconciliation_code", nullable = false, unique = true, length = 50)
     private String reconciliationCode;
 
+    @Column(name = "reconciliation_name", nullable = false, unique = true, length = 150)
+    private String reconciliationName;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by", nullable = false)
     private User createdBy;
@@ -54,6 +57,14 @@ public class Reconciliation {
 
     public void setReconciliationCode(String reconciliationCode) {
         this.reconciliationCode = reconciliationCode;
+    }
+
+    public String getReconciliationName() {
+        return reconciliationName;
+    }
+
+    public void setReconciliationName(String reconciliationName) {
+        this.reconciliationName = reconciliationName;
     }
 
     public User getCreatedBy() {

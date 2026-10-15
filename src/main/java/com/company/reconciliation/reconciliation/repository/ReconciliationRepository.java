@@ -8,4 +8,8 @@ import java.util.Optional;
 public interface ReconciliationRepository extends JpaRepository<Reconciliation, Long> {
 
     Optional<Reconciliation> findByReconciliationCode(String reconciliationCode);
+
+    boolean existsByReconciliationNameIgnoreCase(String reconciliationName);
+
+    Optional<Reconciliation> findByReconciliationNameIgnoreCase(String reconciliationName);
 }

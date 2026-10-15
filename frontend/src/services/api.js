@@ -1,3 +1,5 @@
+import { initialMockReconciliations } from "../mock/mockReconciliations";
+
 /**
  * YesCapital Production API Service Layer
  * 
@@ -9,14 +11,30 @@ const API_BASE = "/api";
 
 const META_STORAGE_KEY = "yescapital_reconciliation_metadata_v1";
 
+const initialMetadataMap = {};
+if (Array.isArray(initialMockReconciliations)) {
+    initialMockReconciliations.forEach((r) => {
+        initialMetadataMap[String(r.id)] = {
+            reconciliationName: r.reconciliationName,
+            reconciliationDate: r.reconciliationDate,
+            description: r.description,
+            referenceBatch: r.referenceBatch,
+            notes: r.notes
+        };
+    });
+}
+
 function loadMetadataStore() {
     try {
         const data = localStorage.getItem(META_STORAGE_KEY);
-        if (data) return JSON.parse(data);
+        if (data) {
+            const parsed = JSON.parse(data);
+            return { ...initialMetadataMap, ...parsed };
+        }
     } catch {
-        // Ignore parsing errors and return empty store
+        // Ignore parsing errors and return initial store
     }
-    return {};
+    return { ...initialMetadataMap };
 }
 
 function saveMetadataStore(store) {
@@ -182,8 +200,25 @@ async function enrichReconciliation(rec) {
 
     const mIns = txns.filter((t) => t.sourceSheet === "M_IN");
     const mOuts = txns.filter((t) => t.sourceSheet === "M_OUT");
-    const matchedCount = results.filter((r) => r.matchStatus === "MATCHED").length;
-    const unmatchedCount = results.filter((r) => r.matchStatus === "UNMATCHED").length;
+    // Deduplicate / consolidate results
+    const consolidatedResultsMap = new Map();
+    results.forEach((r) => {
+        let key = (r.mInTransactionId && r.mOutTransactionId) 
+            ? `PAIR_${r.mInTransactionId}_${r.mOutTransactionId}`
+            : r.mInTransactionId ? `MIN_${r.mInTransactionId}` : r.mOutTransactionId ? `MOUT_${r.mOutTransactionId}` : `RES_${r.id}`;
+        if (!consolidatedResultsMap.has(key)) {
+            consolidatedResultsMap.set(key, r);
+        } else {
+            const existing = consolidatedResultsMap.get(key);
+            if (existing.matchStatus === "MATCHED" && r.matchStatus !== "MATCHED") {
+                consolidatedResultsMap.set(key, r);
+            }
+        }
+    });
+    const consolidatedResults = Array.from(consolidatedResultsMap.values());
+
+    const matchedCount = consolidatedResults.filter((r) => r.matchStatus === "MATCHED").length;
+    const unmatchedCount = consolidatedResults.filter((r) => r.matchStatus === "UNMATCHED" || (r.matchStatus === "ISSUE" && (r.errorType === "MISSING_M_OUT" || r.errorType === "MISSING_M_IN"))).length;
     const openErrors = errors.filter((e) => e.status === "OPEN").length;
 
     const dateStr = meta?.reconciliationDate || (rec.createdAt ? rec.createdAt.split("T")[0] : new Date().toISOString().split("T")[0]);
@@ -255,9 +290,11 @@ export async function createReconciliation(payload) {
     const authUser = getActiveAuthUser();
     const currentUsername = authUser?.username || "local-user";
     const currentUserId = Number(payload?.createdByUserId) || Number(authUser?.id) || 1;
+    const trimmedName = (payload?.reconciliationName || "").trim();
 
     const body = {
-        createdByUserId: currentUserId
+        createdByUserId: currentUserId,
+        reconciliationName: trimmedName
     };
 
     const created = await request("/reconciliations", {
@@ -270,7 +307,7 @@ export async function createReconciliation(payload) {
 
     // Store custom presentation metadata entered by user in the modal
     setStoredMeta(newId, {
-        reconciliationName: payload.reconciliationName || `Reconciliation ${created.reconciliationCode}`,
+        reconciliationName: created.reconciliationName || trimmedName,
         reconciliationDate: dateStr,
         description: payload.description || "Created via YesCapital workspace",
         referenceBatch: payload.referenceBatch || `BATCH-${dateStr.replace(/-/g, "").slice(2)}-${newId}`,
@@ -279,6 +316,24 @@ export async function createReconciliation(payload) {
     });
 
     return enrichReconciliation(created);
+}
+
+/**
+ * Check if reconciliation name already exists (case-insensitive)
+ */
+export async function checkReconciliationNameExists(name) {
+    if (!name || !name.trim()) return false;
+    return await request(`/reconciliations/check-name?name=${encodeURIComponent(name.trim())}`);
+}
+
+/**
+ * Delete a reconciliation by ID
+ */
+export async function deleteReconciliation(reconciliationId) {
+    const id = Number(reconciliationId);
+    return await request(`/reconciliations/${id}`, {
+        method: "DELETE"
+    });
 }
 
 /**
@@ -356,12 +411,26 @@ export async function getTransactionsByReconciliation(reconciliationId) {
 }
 
 /**
- * 6. SAVE TRANSACTIONS: Persist batch modifications and new rows to database
+ * 6. SAVE TRANSACTIONS: Persist batch modifications, new rows, and deletions to database
  */
-export async function saveTransactions(reconciliationId, { newRows = [], updatedRows = [] }) {
+export async function saveTransactions(reconciliationId, { newRows = [], updatedRows = [], deletedRowIds = [] }) {
     const recId = Number(reconciliationId);
     let createdCount = 0;
     let updatedCount = 0;
+    let deletedCount = 0;
+
+    // Process deleted rows first
+    const validDeletedIds = (deletedRowIds || [])
+        .map((id) => Number(id))
+        .filter((id) => !isNaN(id) && id > 0);
+
+    if (validDeletedIds.length > 0) {
+        await request("/transactions/bulk-delete", {
+            method: "POST",
+            body: JSON.stringify(validDeletedIds)
+        });
+        deletedCount = validDeletedIds.length;
+    }
 
     // Filter and format new rows
     const validNewRows = (newRows || [])
@@ -403,10 +472,26 @@ export async function saveTransactions(reconciliationId, { newRows = [], updated
 
     return {
         success: true,
-        savedCount: createdCount + updatedCount,
+        savedCount: createdCount + updatedCount + deletedCount,
         createdCount,
-        updatedCount
+        updatedCount,
+        deletedCount
     };
+}
+
+export async function deleteTransaction(transactionId) {
+    return request(`/transactions/${transactionId}`, {
+        method: "DELETE"
+    });
+}
+
+export async function deleteTransactions(transactionIds) {
+    const validIds = (transactionIds || []).map(Number).filter((id) => !isNaN(id) && id > 0);
+    if (validIds.length === 0) return;
+    return request("/transactions/bulk-delete", {
+        method: "POST",
+        body: JSON.stringify(validIds)
+    });
 }
 
 /**
@@ -476,7 +561,32 @@ export async function getReconciliationResults(reconciliationId) {
     const txnMap = new Map();
     (txns || []).forEach((t) => txnMap.set(Number(t.id), t));
 
-    return results.map((r) => {
+    // Consolidate duplicate rows so each transaction pair or transaction appears exactly once
+    const consolidatedMap = new Map();
+    results.forEach((r) => {
+        let key;
+        if (r.mInTransactionId && r.mOutTransactionId) {
+            key = `PAIR_${r.mInTransactionId}_${r.mOutTransactionId}`;
+        } else if (r.mInTransactionId) {
+            key = `MIN_${r.mInTransactionId}`;
+        } else if (r.mOutTransactionId) {
+            key = `MOUT_${r.mOutTransactionId}`;
+        } else {
+            key = `RES_${r.id}`;
+        }
+
+        if (!consolidatedMap.has(key)) {
+            consolidatedMap.set(key, r);
+        } else {
+            const existing = consolidatedMap.get(key);
+            // If existing was MATCHED and current has an ISSUE or UNMATCHED, current takes precedence
+            if (existing.matchStatus === "MATCHED" && r.matchStatus !== "MATCHED") {
+                consolidatedMap.set(key, r);
+            }
+        }
+    });
+
+    return Array.from(consolidatedMap.values()).map((r) => {
         const mIn = r.mInTransactionId ? txnMap.get(Number(r.mInTransactionId)) : null;
         const mOut = r.mOutTransactionId ? txnMap.get(Number(r.mOutTransactionId)) : null;
 
@@ -486,8 +596,14 @@ export async function getReconciliationResults(reconciliationId) {
         const mInComm = mIn?.commission ?? 0;
         const mOutComm = mOut?.commission ?? 0;
 
+        let status = r.matchStatus;
+        if (status === "ISSUE" && (r.errorType === "MISSING_M_OUT" || r.errorType === "MISSING_M_IN")) {
+            status = "UNMATCHED";
+        }
+
         return {
             ...r,
+            matchStatus: status,
             sourceDescription: `${fromName} → ${toName}`,
             amount,
             mInCommission: mInComm,
@@ -533,15 +649,37 @@ export async function getReconciliationErrors(reconciliationId, status = null) {
             transactionInfo = `${mOut.fromBranchName} → ${mOut.toBranchName} (M_OUT: ₹${Number(mOut.amount).toLocaleString("en-IN")})`;
         }
 
+        const mInRow = mIn?.sourceRow ?? null;
+        const mOutRow = mOut?.sourceRow ?? null;
+
+        let rowDisplay = "—";
+        if (mInRow && mOutRow) {
+            rowDisplay = mInRow === mOutRow ? `Row #${mInRow}` : `M In: #${mInRow}, M Out: #${mOutRow}`;
+        } else if (mInRow) {
+            rowDisplay = `M In: #${mInRow}`;
+        } else if (mOutRow) {
+            rowDisplay = `M Out: #${mOutRow}`;
+        }
+
         return {
             ...err,
             id: String(err.id),
             reconciliationName: recMeta?.reconciliationName || `Reconciliation #${recId}`,
             transactionId: mIn?.id || mOut?.id || null,
             counterpartTransactionId: mOut?.id || mIn?.id || null,
+            mInRow,
+            mOutRow,
+            mInTransaction: mIn,
+            mOutTransaction: mOut,
+            rowDisplay,
             transactionInfo,
             resolutionNotes: err.status === "RESOLVED" ? "Manual exception sign-off completed." : null
         };
+    }).sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        if (timeB !== timeA) return timeB - timeA;
+        return Number(b.id) - Number(a.id);
     });
 }
 
@@ -552,13 +690,36 @@ export async function getAllErrors(filter = {}) {
     const recs = await request("/reconciliations").catch(() => []);
     if (!Array.isArray(recs)) return [];
 
+    const recNameMap = new Map();
+    recs.forEach((r) => {
+        const meta = getStoredMeta(r.id);
+        const name = meta?.reconciliationName || (r.reconciliationCode ? `Reconciliation (${r.reconciliationCode})` : `Reconciliation #${r.id}`);
+        recNameMap.set(Number(r.id), name);
+    });
+
     const allErrorsArrays = await Promise.all(
         recs.map((r) => getReconciliationErrors(r.id, filter.status === "ALL" ? null : filter.status))
     );
 
     const merged = allErrorsArrays.flat();
 
-    return merged.filter((err) => {
+    merged.forEach((err) => {
+        if (recNameMap.has(Number(err.reconciliationId))) {
+            const actualName = recNameMap.get(Number(err.reconciliationId));
+            if (actualName && (!err.reconciliationName || err.reconciliationName.startsWith("Reconciliation #"))) {
+                err.reconciliationName = actualName;
+            }
+        }
+    });
+
+    const sorted = merged.sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        if (timeB !== timeA) return timeB - timeA;
+        return Number(b.id) - Number(a.id);
+    });
+
+    return sorted.filter((err) => {
         if (filter.status && filter.status !== "ALL" && String(err.status).toUpperCase() !== String(filter.status).toUpperCase()) {
             return false;
         }
@@ -607,7 +768,29 @@ export async function getAuditLogs(params = {}) {
     }
 
     const pageData = await request(`/audit-logs${query}`);
-    const logs = pageData?.content || (Array.isArray(pageData) ? pageData : []);
+    let logs = pageData?.content || (Array.isArray(pageData) ? pageData : []);
+
+    // If there are more pages (e.g. reconciliations with > 100 audit entries), fetch all remaining pages
+    if (pageData && pageData.totalPages && pageData.totalPages > 1) {
+        const remainingPromises = [];
+        for (let p = 1; p < pageData.totalPages; p++) {
+            let pQuery = `?page=${p}&size=100&sortBy=createdAt&direction=DESC`;
+            if (params.reconciliationId) {
+                pQuery += `&reconciliationId=${encodeURIComponent(params.reconciliationId)}`;
+            }
+            if (params.action && params.action !== "ALL") {
+                pQuery += `&action=${encodeURIComponent(params.action)}`;
+            }
+            remainingPromises.push(request(`/audit-logs${pQuery}`));
+        }
+        const extraPages = await Promise.all(remainingPromises);
+        extraPages.forEach((p) => {
+            if (p?.content && Array.isArray(p.content)) {
+                logs = logs.concat(p.content);
+            }
+        });
+    }
+
     const authUser = getActiveAuthUser();
     const defaultUsername = authUser?.username || "local-user";
 
@@ -618,6 +801,7 @@ export async function getAuditLogs(params = {}) {
             reconciliationId: log.reconciliationId,
             reconciliationName: recMeta?.reconciliationName || (log.reconciliationId ? `Reconciliation #${log.reconciliationId}` : "System Audit"),
             action: log.action,
+            fieldName: log.fieldName,
             entity: log.transactionId ? "Transaction" : "Reconciliation",
             entityId: String(log.transactionId || log.reconciliationId || log.id),
             transactionId: log.transactionId,
@@ -649,4 +833,71 @@ export async function getAuditLogs(params = {}) {
     }
 
     return uniqueLogs;
+}
+
+/**
+ * 14. AUDIT LOG SUMMARIES: Retrieve dynamic summary record for every reconciliation with audit history
+ */
+export async function getAuditLogSummaries(params = {}) {
+    let query = "";
+    if (params.action && params.action !== "ALL") {
+        query += `?action=${encodeURIComponent(params.action)}`;
+    }
+
+    const [summaries, recs] = await Promise.all([
+        request(`/audit-logs/summaries${query}`).catch(() => []),
+        request("/reconciliations").catch(() => [])
+    ]);
+
+    const recNameMap = new Map();
+    (recs || []).forEach((r) => {
+        const meta = getStoredMeta(r.id);
+        const resolvedName = meta?.reconciliationName || (r.reconciliationCode ? `Reconciliation ${r.reconciliationCode}` : `Reconciliation #${r.id}`);
+        recNameMap.set(Number(r.id), resolvedName);
+    });
+
+    const list = Array.isArray(summaries) ? summaries : [];
+    const authUser = getActiveAuthUser();
+    const defaultUsername = authUser?.username || "local-user";
+
+    const mapped = list.map((item) => {
+        const recId = item.reconciliationId ? Number(item.reconciliationId) : null;
+        const recName = recId && recNameMap.has(recId)
+            ? recNameMap.get(recId)
+            : (item.reconciliationName || (recId ? `Reconciliation #${recId}` : "System Audit"));
+
+        return {
+            groupKey: recId ? `rec_${recId}` : `event_${item.reconciliationCode || Math.random()}`,
+            reconciliationId: recId,
+            reconciliationCode: item.reconciliationCode,
+            reconciliationName: recName,
+            totalRecords: Number(item.totalRecords || 0),
+            latestTimestamp: item.latestTimestamp,
+            user: item.latestUsername || defaultUsername,
+            action: item.latestAction,
+            oldValue: item.latestOldValue || "—",
+            newValue: item.latestNewValue || "—",
+            description: item.latestDescription || `${item.latestAction || "Action"} executed`
+        };
+    });
+
+    // Default order: newest first
+    const sorted = mapped.sort((a, b) => {
+        const timeA = a.latestTimestamp ? new Date(a.latestTimestamp).getTime() : 0;
+        const timeB = b.latestTimestamp ? new Date(b.latestTimestamp).getTime() : 0;
+        if (timeB !== timeA) return timeB - timeA;
+        return (Number(b.reconciliationId) || 0) - (Number(a.reconciliationId) || 0);
+    });
+
+    if (params.search) {
+        const q = params.search.toLowerCase();
+        return sorted.filter((s) =>
+            s.reconciliationName?.toLowerCase().includes(q) ||
+            s.user?.toLowerCase().includes(q) ||
+            s.description?.toLowerCase().includes(q) ||
+            s.action?.toLowerCase().includes(q)
+        );
+    }
+
+    return sorted;
 }

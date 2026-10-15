@@ -21,10 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -194,8 +191,7 @@ public class ReconciliationService {
 
         transactionRepository.saveAll(transactions);
 
-        saveMatches(reconciliation, result.matches(), transactionMap);
-        saveIssues(reconciliation, result.issues(), transactionMap);
+        saveResultsAndErrors(reconciliation, result.matches(), result.issues(), transactionMap);
 
         ReconciliationSummary summary = result.summary();
 
@@ -247,8 +243,36 @@ public class ReconciliationService {
 
         validateReconciliationExists(reconciliationId);
 
-        return reconciliationResultRepository
-                .findByReconciliationId(reconciliationId)
+        List<ReconciliationResult> results = reconciliationResultRepository
+                .findByReconciliationId(reconciliationId);
+
+        // Consolidate in case legacy runs had duplicate rows for the same transaction pair
+        Map<String, ReconciliationResult> consolidatedMap = new LinkedHashMap<>();
+
+        for (ReconciliationResult r : results) {
+            String key;
+            if (r.getmInTransaction() != null && r.getmOutTransaction() != null) {
+                key = "PAIR:" + r.getmInTransaction().getId() + ":" + r.getmOutTransaction().getId();
+            } else if (r.getmInTransaction() != null) {
+                key = "MIN:" + r.getmInTransaction().getId();
+            } else if (r.getmOutTransaction() != null) {
+                key = "MOUT:" + r.getmOutTransaction().getId();
+            } else {
+                key = "ID:" + r.getId();
+            }
+
+            if (!consolidatedMap.containsKey(key)) {
+                consolidatedMap.put(key, r);
+            } else {
+                ReconciliationResult existing = consolidatedMap.get(key);
+                // If existing is MATCHED but current has an ISSUE or UNMATCHED, current takes precedence
+                if ("MATCHED".equalsIgnoreCase(existing.getMatchStatus()) && !"MATCHED".equalsIgnoreCase(r.getMatchStatus())) {
+                    consolidatedMap.put(key, r);
+                }
+            }
+        }
+
+        return consolidatedMap.values()
                 .stream()
                 .map(this::mapToResultResponse)
                 .toList();
@@ -405,7 +429,13 @@ public class ReconciliationService {
                         : null
         );
 
-        response.setMatchStatus(result.getMatchStatus());
+        String matchStatus = result.getMatchStatus();
+        if ("ISSUE".equalsIgnoreCase(matchStatus) &&
+                ("MISSING_M_OUT".equalsIgnoreCase(result.getErrorType()) || "MISSING_M_IN".equalsIgnoreCase(result.getErrorType()))) {
+            matchStatus = "UNMATCHED";
+        }
+
+        response.setMatchStatus(matchStatus);
         response.setErrorType(result.getErrorType());
         response.setErrorReason(result.getErrorReason());
         response.setCreatedAt(result.getCreatedAt());
@@ -454,82 +484,105 @@ public class ReconciliationService {
         );
     }
 
-    // 10. Persist matched transaction results
-    private void saveMatches(
+    // 10. Persist reconciliation results and errors, ensuring exactly one row per transaction pair or transaction
+    private void saveResultsAndErrors(
             Reconciliation reconciliation,
             List<ReconciliationMatch> matches,
-            Map<Long, Transaction> transactionMap) {
-
-        for (ReconciliationMatch match : matches) {
-
-            ReconciliationResult reconciliationResult =
-                    new ReconciliationResult();
-
-            reconciliationResult.setReconciliation(reconciliation);
-            reconciliationResult.setmInTransaction(
-                    transactionMap.get(
-                            match.mInTransaction().transactionId()
-                    )
-            );
-
-            reconciliationResult.setmOutTransaction(
-                    transactionMap.get(
-                            match.mOutTransaction().transactionId()
-                    )
-            );
-
-            reconciliationResult.setMatchStatus("MATCHED");
-            reconciliationResult.setErrorType(null);
-            reconciliationResult.setErrorReason(null);
-            reconciliationResult.setCreatedAt(LocalDateTime.now());
-
-            reconciliationResultRepository.save(reconciliationResult);
-        }
-    }
-
-    // 11. Persist reconciliation issues and linked errors
-    private void saveIssues(
-            Reconciliation reconciliation,
             List<ReconciliationIssue> issues,
             Map<Long, Transaction> transactionMap) {
 
+        // Index issues by the matched pair (mInId + ":" + mOutId)
+        Map<String, ReconciliationIssue> matchIssueMap = new LinkedHashMap<>();
+        Set<ReconciliationIssue> attachedIssues = Collections.newSetFromMap(new IdentityHashMap<>());
+
         for (ReconciliationIssue issue : issues) {
+            if (issue.mInTransaction() != null && issue.mOutTransaction() != null) {
+                String key = issue.mInTransaction().transactionId() + ":" + issue.mOutTransaction().transactionId();
+                matchIssueMap.put(key, issue);
+            }
+        }
+
+        // 1. Process all matched pairs
+        for (ReconciliationMatch match : matches) {
+            Long mInId = match.mInTransaction().transactionId();
+            Long mOutId = match.mOutTransaction().transactionId();
+            String key = mInId + ":" + mOutId;
+
+            ReconciliationIssue issue = matchIssueMap.get(key);
+
+            ReconciliationResult reconciliationResult = new ReconciliationResult();
+            reconciliationResult.setReconciliation(reconciliation);
+            reconciliationResult.setmInTransaction(transactionMap.get(mInId));
+            reconciliationResult.setmOutTransaction(transactionMap.get(mOutId));
+
+            if (issue != null) {
+                attachedIssues.add(issue);
+                String errorType = issue.issueType().name();
+                reconciliationResult.setMatchStatus("ISSUE");
+                reconciliationResult.setErrorType(errorType);
+                reconciliationResult.setErrorReason(issue.description());
+                reconciliationResult.setCreatedAt(LocalDateTime.now());
+
+                ReconciliationResult savedResult =
+                        reconciliationResultRepository.save(reconciliationResult);
+
+                ReconciliationError reconciliationError = new ReconciliationError();
+                reconciliationError.setReconciliationResult(savedResult);
+                reconciliationError.setErrorType(errorType);
+                reconciliationError.setErrorCode(errorType);
+                reconciliationError.setDescription(issue.description());
+                reconciliationError.setStatus("OPEN");
+                reconciliationError.setCreatedAt(LocalDateTime.now());
+                reconciliationError.setUpdatedAt(LocalDateTime.now());
+
+                reconciliationErrorRepository.save(reconciliationError);
+            } else {
+                reconciliationResult.setMatchStatus("MATCHED");
+                reconciliationResult.setErrorType(null);
+                reconciliationResult.setErrorReason(null);
+                reconciliationResult.setCreatedAt(LocalDateTime.now());
+
+                reconciliationResultRepository.save(reconciliationResult);
+            }
+        }
+
+        // 2. Process issues not associated with a match (e.g. AMOUNT_MISMATCH, MISSING_M_OUT, MISSING_M_IN, invalid data)
+        for (ReconciliationIssue issue : issues) {
+            if (attachedIssues.contains(issue)) {
+                continue;
+            }
 
             String errorType = issue.issueType().name();
-
-            ReconciliationResult reconciliationResult =
-                    new ReconciliationResult();
-
+            ReconciliationResult reconciliationResult = new ReconciliationResult();
             reconciliationResult.setReconciliation(reconciliation);
             reconciliationResult.setmInTransaction(
                     issue.mInTransaction() == null
                             ? null
-                            : transactionMap.get(
-                            issue.mInTransaction().transactionId()
-                    )
+                            : transactionMap.get(issue.mInTransaction().transactionId())
             );
-
             reconciliationResult.setmOutTransaction(
                     issue.mOutTransaction() == null
                             ? null
-                            : transactionMap.get(
-                            issue.mOutTransaction().transactionId()
-                    )
+                            : transactionMap.get(issue.mOutTransaction().transactionId())
             );
 
-            reconciliationResult.setMatchStatus("ISSUE");
+            String matchStatus;
+            if (issue.issueType() == ReconciliationIssueType.MISSING_M_OUT
+                    || issue.issueType() == ReconciliationIssueType.MISSING_M_IN) {
+                matchStatus = "UNMATCHED";
+            } else {
+                matchStatus = "ISSUE";
+            }
+
+            reconciliationResult.setMatchStatus(matchStatus);
             reconciliationResult.setErrorType(errorType);
             reconciliationResult.setErrorReason(issue.description());
             reconciliationResult.setCreatedAt(LocalDateTime.now());
 
             ReconciliationResult savedResult =
-                    reconciliationResultRepository.save(
-                            reconciliationResult
-                    );
+                    reconciliationResultRepository.save(reconciliationResult);
 
-            ReconciliationError reconciliationError =
-                    new ReconciliationError();
-
+            ReconciliationError reconciliationError = new ReconciliationError();
             reconciliationError.setReconciliationResult(savedResult);
             reconciliationError.setErrorType(errorType);
             reconciliationError.setErrorCode(errorType);

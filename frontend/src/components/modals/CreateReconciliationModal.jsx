@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "../../context/AppContext";
-import { createReconciliation } from "../../services/mockApi";
+import { createReconciliation, checkReconciliationNameExists, getReconciliations } from "../../services/api";
 import { X, Calendar, FileText, Tag, AlignLeft, Sparkles, AlertCircle } from "lucide-react";
 
 export default function CreateReconciliationModal() {
@@ -46,18 +46,6 @@ export default function CreateReconciliationModal() {
 
     if (!isCreateModalOpen) return null;
 
-    const validate = () => {
-        const newErrors = {};
-        if (!formData.reconciliationName.trim()) {
-            newErrors.reconciliationName = "Reconciliation Name is required";
-        }
-        if (!formData.reconciliationDate) {
-            newErrors.reconciliationDate = "Reconciliation Date is required";
-        }
-        setErrors(newErrors);
-        return Object.keys(newErrors).length === 0;
-    };
-
     const handleChange = (field, value) => {
         setFormData((prev) => ({ ...prev, [field]: value }));
         if (errors[field]) {
@@ -65,13 +53,87 @@ export default function CreateReconciliationModal() {
         }
     };
 
+    const handleNameBlur = async () => {
+        const trimmed = formData.reconciliationName.trim();
+        if (!trimmed) return;
+        try {
+            const exists = await checkReconciliationNameExists(trimmed);
+            if (exists) {
+                setErrors((prev) => ({
+                    ...prev,
+                    reconciliationName: "A reconciliation with this name already exists. Please choose a different name."
+                }));
+            }
+        } catch {
+            // Ignore blur check error
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!validate()) return;
+        
+        const trimmedName = formData.reconciliationName.trim();
+        const newErrors = {};
+
+        if (!trimmedName) {
+            newErrors.reconciliationName = "Reconciliation Name is required";
+        }
+        if (!formData.reconciliationDate) {
+            newErrors.reconciliationDate = "Reconciliation Date is required";
+        }
+
+        if (Object.keys(newErrors).length > 0) {
+            setErrors(newErrors);
+            return;
+        }
 
         try {
             setSubmitting(true);
-            const created = await createReconciliation(formData);
+
+            // 1. Check if name already exists (case-insensitive)
+            let isDuplicate = false;
+            try {
+                isDuplicate = await checkReconciliationNameExists(trimmedName);
+            } catch {
+                // Fallback check against loaded list
+                const list = await getReconciliations().catch(() => []);
+                isDuplicate = list.some(
+                    (r) => r.reconciliationName && r.reconciliationName.trim().toLowerCase() === trimmedName.toLowerCase()
+                );
+            }
+
+            if (isDuplicate) {
+                setErrors((prev) => ({
+                    ...prev,
+                    reconciliationName: "A reconciliation with this name already exists. Please choose a different name."
+                }));
+                addToast({
+                    type: "error",
+                    title: "Duplicate Reconciliation Name",
+                    message: "A reconciliation with this name already exists. Please choose a different name."
+                });
+                setSubmitting(false);
+                return;
+            }
+
+            // 2. If mode is "import", DO NOT create reconciliation in DB yet!
+            // Navigate to Excel import step with staged details.
+            if (createModalMode === "import") {
+                closeCreateModal();
+                openImportModal({
+                    ...formData,
+                    reconciliationName: trimmedName,
+                    isStaged: true
+                });
+                setSubmitting(false);
+                return;
+            }
+
+            // 3. Direct create mode ("new"): save to database immediately
+            const created = await createReconciliation({
+                ...formData,
+                reconciliationName: trimmedName
+            });
             triggerRefresh();
 
             addToast({
@@ -81,19 +143,19 @@ export default function CreateReconciliationModal() {
             });
 
             closeCreateModal();
-
-            if (createModalMode === "import") {
-                // Next step in import flow: Excel upload & preview modal
-                openImportModal(created);
-            } else {
-                // Direct create flow: navigate to workspace transactions tab
-                navigate(`/reconciliations/${created.id}?tab=transactions`);
-            }
+            navigate(`/reconciliations/${created.id}?tab=transactions`);
         } catch (err) {
+            const errMsg = err.message || "Failed to create reconciliation.";
+            if (errMsg.toLowerCase().includes("already exists") || errMsg.toLowerCase().includes("duplicate")) {
+                setErrors((prev) => ({
+                    ...prev,
+                    reconciliationName: "A reconciliation with this name already exists. Please choose a different name."
+                }));
+            }
             addToast({
                 type: "error",
                 title: "Creation Failed",
-                message: err.message || "Failed to create reconciliation."
+                message: errMsg
             });
         } finally {
             setSubmitting(false);
@@ -156,6 +218,7 @@ export default function CreateReconciliationModal() {
                                     placeholder="e.g. October Branch Reconciliation"
                                     value={formData.reconciliationName}
                                     onChange={(e) => handleChange("reconciliationName", e.target.value)}
+                                    onBlur={handleNameBlur}
                                     autoFocus
                                 />
                             </div>

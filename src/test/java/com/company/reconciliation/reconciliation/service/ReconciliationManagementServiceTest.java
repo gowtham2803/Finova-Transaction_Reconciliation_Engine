@@ -1,11 +1,15 @@
 
 package com.company.reconciliation.reconciliation.service;
 
+import com.company.reconciliation.audit.repository.AuditLogRepository;
 import com.company.reconciliation.audit.service.AuditService;
 import com.company.reconciliation.reconciliation.dto.request.ReconciliationCreateRequest;
 import com.company.reconciliation.reconciliation.dto.response.ReconciliationResponse;
 import com.company.reconciliation.reconciliation.entity.Reconciliation;
+import com.company.reconciliation.reconciliation.error.repository.ReconciliationErrorRepository;
 import com.company.reconciliation.reconciliation.repository.ReconciliationRepository;
+import com.company.reconciliation.reconciliation.result.repository.ReconciliationResultRepository;
+import com.company.reconciliation.transaction.repository.TransactionRepository;
 import com.company.reconciliation.user.entity.User;
 import com.company.reconciliation.user.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -35,6 +39,18 @@ class ReconciliationManagementServiceTest {
     @Mock
     private AuditService auditService;
 
+    @Mock
+    private AuditLogRepository auditLogRepository;
+
+    @Mock
+    private ReconciliationResultRepository reconciliationResultRepository;
+
+    @Mock
+    private ReconciliationErrorRepository reconciliationErrorRepository;
+
+    @Mock
+    private TransactionRepository transactionRepository;
+
     @InjectMocks
     private ReconciliationManagementService managementService;
 
@@ -47,6 +63,10 @@ class ReconciliationManagementServiceTest {
         ReconciliationCreateRequest request =
                 new ReconciliationCreateRequest();
         request.setCreatedByUserId(1L);
+        request.setReconciliationName("October Batch");
+
+        when(reconciliationRepository.existsByReconciliationNameIgnoreCase("October Batch"))
+                .thenReturn(false);
 
         when(userRepository.findById(1L))
                 .thenReturn(Optional.of(user));
@@ -71,12 +91,14 @@ class ReconciliationManagementServiceTest {
 
         assertEquals(10L, response.getId());
         assertEquals(1L, response.getCreatedByUserId());
+        assertEquals("October Batch", response.getReconciliationName());
         assertEquals("PENDING", response.getStatus());
 
         assertNotNull(response.getReconciliationCode());
         assertTrue(response.getReconciliationCode().startsWith("REC-"));
 
         assertSame(user, saved.getCreatedBy());
+        assertEquals("October Batch", saved.getReconciliationName());
         assertEquals("PENDING", saved.getStatus());
         assertEquals(1, saved.getVersion());
         assertNotNull(saved.getCreatedAt());
@@ -99,11 +121,36 @@ class ReconciliationManagementServiceTest {
     }
 
     @Test
+    void createReconciliation_shouldThrowWhenNameAlreadyExists() {
+        ReconciliationCreateRequest request =
+                new ReconciliationCreateRequest();
+        request.setCreatedByUserId(1L);
+        request.setReconciliationName("Existing Name");
+
+        when(reconciliationRepository.existsByReconciliationNameIgnoreCase("Existing Name"))
+                .thenReturn(true);
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> managementService.createReconciliation(request)
+        );
+
+        assertEquals("A reconciliation with this name already exists. Please choose a different name.", ex.getMessage());
+
+        verify(reconciliationRepository, never()).save(any(Reconciliation.class));
+        verifyNoInteractions(auditService);
+    }
+
+    @Test
     void createReconciliation_shouldThrowWhenUserDoesNotExist() {
 
         ReconciliationCreateRequest request =
                 new ReconciliationCreateRequest();
         request.setCreatedByUserId(999L);
+        request.setReconciliationName("Nonexistent User Batch");
+
+        when(reconciliationRepository.existsByReconciliationNameIgnoreCase("Nonexistent User Batch"))
+                .thenReturn(false);
 
         when(userRepository.findById(999L))
                 .thenReturn(Optional.empty());

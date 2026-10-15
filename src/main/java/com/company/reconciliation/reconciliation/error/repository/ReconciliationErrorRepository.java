@@ -20,4 +20,8 @@ public interface ReconciliationErrorRepository
             Long reconciliationId,
             String status
     );
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("DELETE FROM ReconciliationError e WHERE e.reconciliationResult.reconciliation.id = :reconciliationId")
+    void deleteByReconciliationId(@org.springframework.data.repository.query.Param("reconciliationId") Long reconciliationId);
 }

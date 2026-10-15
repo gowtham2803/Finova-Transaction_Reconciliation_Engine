@@ -2,6 +2,7 @@
 package com.company.reconciliation.audit.service;
 
 import com.company.reconciliation.audit.dto.response.AuditLogResponse;
+import com.company.reconciliation.audit.dto.response.ReconciliationAuditSummaryResponse;
 import com.company.reconciliation.audit.entity.AuditLog;
 import com.company.reconciliation.audit.repository.AuditLogRepository;
 import org.springframework.data.domain.Page;
@@ -12,6 +13,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 @Service
@@ -146,5 +149,47 @@ public class AuditLogQueryService {
                 auditLog.getRequestId(),
                 auditLog.getCreatedAt()
         );
+    }
+
+    public List<ReconciliationAuditSummaryResponse> getReconciliationAuditSummaries(String action) {
+        String trimmedAction = (action != null && !action.isBlank() && !"ALL".equalsIgnoreCase(action.trim()))
+                ? action.trim()
+                : null;
+
+        List<Object[]> aggregates = auditLogRepository.getReconciliationAuditSummaryAggregates(trimmedAction);
+        List<ReconciliationAuditSummaryResponse> results = new ArrayList<>();
+
+        for (Object[] row : aggregates) {
+            Long recId = (Long) row[0];
+            long totalRecords = ((Number) row[1]).longValue();
+            LocalDateTime latestTimestamp = (LocalDateTime) row[2];
+
+            AuditLog latestLog = trimmedAction != null
+                    ? auditLogRepository.findFirstByReconciliationIdAndActionOrderByCreatedAtDescIdDesc(recId, trimmedAction)
+                    : auditLogRepository.findFirstByReconciliationIdOrderByCreatedAtDescIdDesc(recId);
+
+            if (latestLog != null) {
+                String recCode = latestLog.getReconciliation() != null
+                        ? latestLog.getReconciliation().getReconciliationCode()
+                        : null;
+                Long userId = latestLog.getUser() != null ? latestLog.getUser().getId() : null;
+                String username = latestLog.getUser() != null ? latestLog.getUser().getUsername() : null;
+
+                results.add(new ReconciliationAuditSummaryResponse(
+                        recId,
+                        recCode,
+                        totalRecords,
+                        latestTimestamp,
+                        userId,
+                        username,
+                        latestLog.getAction(),
+                        latestLog.getOldValue(),
+                        latestLog.getNewValue(),
+                        latestLog.getReason()
+                ));
+            }
+        }
+
+        return results;
     }
 }

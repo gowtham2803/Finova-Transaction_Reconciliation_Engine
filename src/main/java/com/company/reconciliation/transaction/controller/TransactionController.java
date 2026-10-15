@@ -92,4 +92,18 @@ public class TransactionController {
 
         return ResponseEntity.ok(responses);
     }
+
+    // 7. Delete a single transaction
+    @DeleteMapping("/{transactionId}")
+    public ResponseEntity<Void> deleteTransaction(@PathVariable Long transactionId) {
+        transactionService.deleteTransaction(transactionId);
+        return ResponseEntity.noContent().build();
+    }
+
+    // 8. Bulk delete transactions
+    @PostMapping("/bulk-delete")
+    public ResponseEntity<Void> deleteTransactions(@RequestBody List<Long> transactionIds) {
+        transactionService.deleteTransactions(transactionIds);
+        return ResponseEntity.noContent().build();
+    }
 }

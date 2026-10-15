@@ -5,9 +5,11 @@ import com.company.reconciliation.common.response.ApiResponse;
 import jakarta.persistence.EntityNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.server.ResponseStatusException;
@@ -126,6 +128,49 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
+                .body(response);
+    }
+
+    /**
+     * Handles Bean Validation errors (@Valid).
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMethodArgumentNotValid(
+            MethodArgumentNotValidException exception) {
+
+        log.warn("Validation failed: {}", exception.getMessage());
+
+        String message = exception.getBindingResult().getFieldErrors().stream()
+                .findFirst()
+                .map(fieldError -> fieldError.getDefaultMessage())
+                .orElse("Validation failed");
+
+        ApiResponse<Void> response = ApiResponse.error(message);
+
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(response);
+    }
+
+    /**
+     * Handles database constraints and unique violations.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolation(
+            DataIntegrityViolationException exception) {
+
+        log.warn("Database integrity violation: {}", exception.getMessage());
+
+        String details = exception.getMessage() != null ? exception.getMessage().toLowerCase() : "";
+        String message = "Database integrity violation";
+        if (details.contains("uk_reconciliations_name") || details.contains("reconciliation_name") || details.contains("duplicate entry")) {
+            message = "A reconciliation with this name already exists. Please choose a different name.";
+        }
+
+        ApiResponse<Void> response = ApiResponse.error(message);
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
                 .body(response);
     }
 

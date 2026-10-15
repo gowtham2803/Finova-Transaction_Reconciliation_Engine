@@ -1,15 +1,19 @@
 package com.company.reconciliation.reconciliation.service;
 
+import com.company.reconciliation.audit.repository.AuditLogRepository;
+import com.company.reconciliation.audit.service.AuditService;
 import com.company.reconciliation.reconciliation.dto.request.ReconciliationCreateRequest;
 import com.company.reconciliation.reconciliation.dto.response.ReconciliationResponse;
 import com.company.reconciliation.reconciliation.entity.Reconciliation;
+import com.company.reconciliation.reconciliation.error.repository.ReconciliationErrorRepository;
 import com.company.reconciliation.reconciliation.repository.ReconciliationRepository;
+import com.company.reconciliation.reconciliation.result.repository.ReconciliationResultRepository;
+import com.company.reconciliation.transaction.repository.TransactionRepository;
 import com.company.reconciliation.user.entity.User;
 import com.company.reconciliation.user.repository.UserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.company.reconciliation.audit.service.AuditService;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -22,15 +26,27 @@ public class ReconciliationManagementService {
     private final ReconciliationRepository reconciliationRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
+    private final AuditLogRepository auditLogRepository;
+    private final ReconciliationResultRepository reconciliationResultRepository;
+    private final ReconciliationErrorRepository reconciliationErrorRepository;
+    private final TransactionRepository transactionRepository;
 
     public ReconciliationManagementService(
             ReconciliationRepository reconciliationRepository,
             UserRepository userRepository,
-            AuditService auditService
+            AuditService auditService,
+            AuditLogRepository auditLogRepository,
+            ReconciliationResultRepository reconciliationResultRepository,
+            ReconciliationErrorRepository reconciliationErrorRepository,
+            TransactionRepository transactionRepository
     ) {
         this.reconciliationRepository = reconciliationRepository;
         this.userRepository = userRepository;
         this.auditService = auditService;
+        this.auditLogRepository = auditLogRepository;
+        this.reconciliationResultRepository = reconciliationResultRepository;
+        this.reconciliationErrorRepository = reconciliationErrorRepository;
+        this.transactionRepository = transactionRepository;
     }
 
     // 1. Create a reconciliation
@@ -40,6 +56,20 @@ public class ReconciliationManagementService {
         if (request == null || request.getCreatedByUserId() == null) {
             throw new IllegalArgumentException(
                     "A valid creator user ID is required"
+            );
+        }
+
+        String rawName = request.getReconciliationName();
+        if (rawName == null || rawName.trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Reconciliation name is required"
+            );
+        }
+
+        String trimmedName = rawName.trim();
+        if (reconciliationRepository.existsByReconciliationNameIgnoreCase(trimmedName)) {
+            throw new IllegalArgumentException(
+                    "A reconciliation with this name already exists. Please choose a different name."
             );
         }
 
@@ -55,6 +85,7 @@ public class ReconciliationManagementService {
         Reconciliation reconciliation = new Reconciliation();
 
         reconciliation.setReconciliationCode(generateReconciliationCode());
+        reconciliation.setReconciliationName(trimmedName);
         reconciliation.setCreatedBy(user);
         reconciliation.setStatus("PENDING");
         reconciliation.setVersion(1);
@@ -134,6 +165,9 @@ public class ReconciliationManagementService {
         response.setReconciliationCode(
                 reconciliation.getReconciliationCode()
         );
+        response.setReconciliationName(
+                reconciliation.getReconciliationName()
+        );
 
         response.setCreatedByUserId(
                 reconciliation.getCreatedBy() != null
@@ -155,5 +189,29 @@ public class ReconciliationManagementService {
         response.setUpdatedAt(reconciliation.getUpdatedAt());
 
         return response;
+    }
+
+    // 7. Check if reconciliation name exists
+    @Transactional(readOnly = true)
+    public boolean existsByName(String name) {
+        if (name == null || name.trim().isEmpty()) {
+            return false;
+        }
+        return reconciliationRepository.existsByReconciliationNameIgnoreCase(name.trim());
+    }
+
+    // 8. Delete reconciliation and its child records
+    public void deleteReconciliation(Long id) {
+        validateId(id);
+        Reconciliation reconciliation = reconciliationRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Reconciliation not found with ID: " + id
+                ));
+
+        reconciliationErrorRepository.deleteByReconciliationId(id);
+        reconciliationResultRepository.deleteByReconciliationId(id);
+        auditLogRepository.deleteByReconciliationId(id);
+        transactionRepository.deleteByReconciliationId(id);
+        reconciliationRepository.delete(reconciliation);
     }
 }

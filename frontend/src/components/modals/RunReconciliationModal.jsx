@@ -1,5 +1,16 @@
 import { useState, useEffect } from "react";
-import { Play, CheckCircle2, Cpu, RefreshCw, X } from "lucide-react";
+import {
+    Play,
+    CheckCircle2,
+    Cpu,
+    RefreshCw,
+    X,
+    ArrowLeftRight,
+    Coins,
+    AlertTriangle,
+    HelpCircle,
+    ArrowRight
+} from "lucide-react";
 
 export default function RunReconciliationModal({
     isOpen,
@@ -57,6 +68,9 @@ export default function RunReconciliationModal({
         onClose();
     };
 
+    const currentVersion = reconciliation.version || 1;
+    const nextVersion = currentVersion + 1;
+
     return (
         <div className="modal-backdrop" onClick={!running ? handleClose : undefined}>
             <div
@@ -65,17 +79,24 @@ export default function RunReconciliationModal({
                 role="dialog"
                 aria-modal="true"
             >
+                {/* Modal Header */}
                 <div className="modal-header">
-                    <div className="flex items-center gap-2">
-                        <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400">
-                            {isRerun ? <RefreshCw size={20} className={running ? "spin" : ""} /> : <Play size={20} />}
+                    <div className="flex items-center gap-2.5">
+                        <div className="run-header-icon-badge">
+                            {isRerun ? (
+                                <RefreshCw size={18} className={running ? "spin text-blue-400" : "text-blue-400"} />
+                            ) : (
+                                <Play size={18} className="text-blue-400" />
+                            )}
                         </div>
                         <div>
-                            <h2 className="modal-title text-lg font-bold">
+                            <h2 className="modal-title text-base font-bold">
                                 {isRerun ? "Rerun Reconciliation Engine" : "Run Reconciliation"}
                             </h2>
-                            <p className="modal-subtitle">
-                                {reconciliation.reconciliationName} ({reconciliation.reconciliationCode})
+                            <p className="modal-subtitle text-xs">
+                                <span className="font-semibold text-slate-300">{reconciliation.reconciliationName}</span>
+                                <span className="mx-1 text-slate-600">•</span>
+                                <span className="font-mono text-slate-400">{reconciliation.reconciliationCode}</span>
                             </p>
                         </div>
                     </div>
@@ -86,48 +107,72 @@ export default function RunReconciliationModal({
                             onClick={handleClose}
                             aria-label="Close"
                         >
-                            <X size={18} />
+                            <X size={16} />
                         </button>
                     )}
                 </div>
 
-                <div className="modal-body py-4">
+                {/* Modal Body */}
+                <div className="modal-body py-3">
+                    {/* STATE 1: COMPACT CONFIRMATION PROMPT (BEFORE EXECUTION) */}
                     {!running && !runFinished && (
-                        <div>
-                            <p className="text-sm text-slate-300 leading-relaxed mb-4">
-                                This will execute the automated <strong>YesCapital Reconciliation Engine</strong> across all active <strong>M In</strong> and <strong>M Out</strong> transactions.
+                        <div className="run-confirm-container">
+                            <p className="run-confirm-lead-text">
+                                This will execute the automated <strong className="text-slate-100">YesCapital Reconciliation Engine</strong>:
                             </p>
-                            <div className="rule-recap-box">
-                                <div className="text-xs font-semibold text-slate-200 uppercase tracking-wider mb-2">
-                                    Enforced Banking &amp; Clearing Rules:
+
+                            <div className="run-compact-rules-box">
+                                <div className="run-compact-rule-row">
+                                    <div className="run-rule-dot blue">
+                                        <ArrowLeftRight size={13} />
+                                    </div>
+                                    <div className="run-compact-rule-text">
+                                        <strong className="text-slate-200">M In</strong> must match <strong className="text-slate-200">M Out</strong>
+                                    </div>
                                 </div>
-                                <ul className="text-xs text-slate-400 space-y-1.5 list-disc list-inside">
-                                    <li>M In (toBranch) must match M Out (fromBranch) and vice-versa</li>
-                                    <li>Transaction amounts must match exactly</li>
-                                    <li><strong>Commission Rule:</strong> Exactly one side must collect commission. Dual or zero commission triggers a voucher error.</li>
-                                    <li>Duplicate recurring transactions are supported and properly paired</li>
-                                </ul>
+
+                                <div className="run-compact-rule-row">
+                                    <div className="run-rule-dot emerald">
+                                        <CheckCircle2 size={13} />
+                                    </div>
+                                    <div className="run-compact-rule-text">
+                                        <strong className="text-slate-200">Transaction amounts</strong> must match exactly
+                                    </div>
+                                </div>
+
+                                <div className="run-compact-rule-row">
+                                    <div className="run-rule-dot amber">
+                                        <Coins size={13} />
+                                    </div>
+                                    <div className="run-compact-rule-text">
+                                        <strong className="text-slate-200">Commission:</strong> Exactly one side must collect commission.
+                                    </div>
+                                </div>
                             </div>
+
                             {isRerun && (
-                                <div className="version-bump-note mt-3">
-                                    <RefreshCw size={14} className="text-blue-400" />
-                                    <span>
-                                        This run will increment the batch version from <strong>v{reconciliation.version}</strong> to <strong>v{reconciliation.version + 1}</strong>.
-                                    </span>
+                                <div className="run-compact-version-note">
+                                    <div className="run-version-transition">
+                                        <RefreshCw size={13} className="text-blue-400 shrink-0" />
+                                        <span className="run-version-pill current">V {currentVersion}</span>
+                                        <ArrowRight size={12} className="text-slate-500" />
+                                        <span className="run-version-pill next">V {nextVersion}</span>
+                                    </div>
                                 </div>
                             )}
                         </div>
                     )}
 
+                    {/* STATE 2: RUNNING PROGRESS ANIMATION */}
                     {running && !runFinished && (
-                        <div className="run-progress-display">
-                            <div className="flex items-center justify-center mb-4">
+                        <div className="run-progress-display py-2">
+                            <div className="flex items-center justify-center mb-3">
                                 <div className="reconciliation-gear-animation">
                                     <Cpu size={32} className="spin text-blue-400" />
                                 </div>
                             </div>
 
-                            <div className="text-center font-semibold text-slate-200 text-sm mb-3">
+                            <div className="text-center font-semibold text-slate-200 text-xs mb-2">
                                 {steps[currentStepIndex]}
                             </div>
 
@@ -139,51 +184,75 @@ export default function RunReconciliationModal({
                                     }}
                                 ></div>
                             </div>
-                            <div className="text-xs text-slate-400 text-center">
+                            <div className="text-[11px] text-slate-400 text-center">
                                 Processing Step {currentStepIndex + 1} of {steps.length}
                             </div>
                         </div>
                     )}
 
+                    {/* STATE 3: EXECUTION COMPLETE DIALOG (COMPACT PROPORTIONS) */}
                     {runFinished && finalOutcome && (
-                        <div className="run-completed-display text-center py-2">
-                            <div className="inline-flex p-3 rounded-full bg-emerald-500/10 text-emerald-400 mb-3">
-                                <CheckCircle2 size={36} />
-                            </div>
-                            <h3 className="text-base font-bold text-slate-100 mb-1">
-                                Reconciliation Execution Complete
-                            </h3>
-                            <p className="text-xs text-slate-500 mb-4">
-                                Updated to <strong>Version {finalOutcome.reconciliation?.version}</strong> • Status:{" "}
-                                <span className={`status-badge ${finalOutcome.reconciliation?.status === "COMPLETED" ? "status-success" : "status-error"}`}>
-                                    {finalOutcome.reconciliation?.status}
-                                </span>
-                            </p>
+                        <div className="run-completed-container">
+                            <div className="run-completed-hero">
+                                <div className="run-completed-icon-ring">
+                                    <CheckCircle2 size={26} className="text-emerald-400" />
+                                </div>
+                                <h3 className="run-completed-title text-base font-bold text-slate-100">
+                                    Reconciliation Execution Complete
+                                </h3>
 
-                            <div className="outcome-stats-grid">
-                                <div className="outcome-stat">
-                                    <div className="outcome-label">Matched</div>
-                                    <div className="outcome-val text-emerald-600 font-bold text-lg">
-                                        {finalOutcome.reconciliation?.matchedCount}
-                                    </div>
+
+                                <div className="run-completed-badge-row">
+                                    <span className="run-badge-pill version">
+                                        Version {finalOutcome.reconciliation?.version || reconciliation.version}
+                                    </span>
+                                    <span className={`run-badge-pill status ${
+                                        finalOutcome.reconciliation?.status === "COMPLETED" || finalOutcome.reconciliation?.status === "RECONCILED"
+                                            ? "success"
+                                            : "issue"
+                                    }`}>
+                                        <span className="status-dot-pulse"></span>
+                                        <span>{finalOutcome.reconciliation?.status || "ISSUES_FOUND"}</span>
+                                    </span>
                                 </div>
-                                <div className="outcome-stat">
-                                    <div className="outcome-label">Unmatched</div>
-                                    <div className="outcome-val text-rose-600 font-bold text-lg">
-                                        {finalOutcome.reconciliation?.unmatchedCount}
+                            </div>
+
+                            <div className="run-metrics-grid">
+                                <div className="run-metric-card matched">
+                                    <div className="run-metric-icon-wrap">
+                                        <CheckCircle2 size={13} />
                                     </div>
+                                    <div className="run-metric-val">
+                                        {finalOutcome.reconciliation?.matchedCount ?? 0}
+                                    </div>
+                                    <div className="run-metric-label">Matched</div>
                                 </div>
-                                <div className="outcome-stat">
-                                    <div className="outcome-label">Issues Found</div>
-                                    <div className="outcome-val text-amber-600 font-bold text-lg">
-                                        {finalOutcome.reconciliation?.errorCount}
+
+                                <div className="run-metric-card unmatched">
+                                    <div className="run-metric-icon-wrap">
+                                        <HelpCircle size={13} />
                                     </div>
+                                    <div className="run-metric-val">
+                                        {finalOutcome.reconciliation?.unmatchedCount ?? 0}
+                                    </div>
+                                    <div className="run-metric-label">Unmatched</div>
+                                </div>
+
+                                <div className="run-metric-card issues">
+                                    <div className="run-metric-icon-wrap">
+                                        <AlertTriangle size={13} />
+                                    </div>
+                                    <div className="run-metric-val">
+                                        {finalOutcome.reconciliation?.errorCount ?? 0}
+                                    </div>
+                                    <div className="run-metric-label">Issues</div>
                                 </div>
                             </div>
                         </div>
                     )}
                 </div>
 
+                {/* Modal Actions */}
                 <div className="modal-actions">
                     {!running && !runFinished && (
                         <>
@@ -196,21 +265,22 @@ export default function RunReconciliationModal({
                             </button>
                             <button
                                 type="button"
-                                className="primary-button flex items-center gap-2"
+                                className="primary-button flex items-center gap-1.5"
                                 onClick={startExecution}
                             >
-                                <Play size={15} />
-                                Confirm &amp; Execute
+                                <Play size={14} />
+                                <span>Confirm &amp; Execute</span>
                             </button>
                         </>
                     )}
                     {runFinished && (
                         <button
                             type="button"
-                            className="primary-button w-full"
+                            className="primary-button w-full flex items-center justify-center gap-1.5"
                             onClick={handleClose}
                         >
-                            View Updated Results &amp; Workspace →
+                            <span>View Updated Results &amp; Workspace</span>
+                            <ArrowRight size={14} />
                         </button>
                     )}
                 </div>

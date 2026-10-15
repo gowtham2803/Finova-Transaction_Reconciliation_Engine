@@ -1,9 +1,8 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "../../context/AppContext";
-import { importTransactions, getBranches } from "../../services/api";
+import { importTransactions, getBranches, createReconciliation, deleteReconciliation } from "../../services/api";
 import { parseExcelWorkbook, formatFileSize } from "../../utils/excelParser";
-import { initialMockTransactions } from "../../mock/mockTransactions";
 import {
     UploadCloud,
     FileSpreadsheet,
@@ -11,8 +10,9 @@ import {
     AlertTriangle,
     X,
     ArrowRight,
-    Sparkles,
-    FileCheck
+    FileCheck,
+    RotateCw,
+    Cpu
 } from "lucide-react";
 
 export default function ImportExcelModal() {
@@ -102,7 +102,7 @@ export default function ImportExcelModal() {
             setStatusStage("Parsing M_IN and M_OUT transaction rows...");
 
             const branchList = branches.length > 0 ? branches : await getBranches().catch(() => []);
-            const parsed = await parseExcelWorkbook(file, branchList, importReconciliationData.id);
+            const parsed = await parseExcelWorkbook(file, branchList, importReconciliationData?.id || 0);
 
             await new Promise((r) => setTimeout(r, 300));
             setUploadProgress(85);
@@ -132,73 +132,52 @@ export default function ImportExcelModal() {
         }
     };
 
-    const handleLoadSampleDataset = () => {
-        setFileState({
-            name: "tamil_nadu_hubs_october_settlement.xlsx",
-            size: "142.8 KB",
-            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        });
-        setUploading(true);
-        setUploadProgress(15);
-        setStatusStage("Reading demo workbook sheets (M_IN & M_OUT)...");
-
-        setTimeout(() => {
-            setUploadProgress(50);
-            setStatusStage("Parsing 23 M_IN rows & 23 M_OUT rows...");
-        }, 250);
-
-        setTimeout(() => {
-            setUploadProgress(85);
-            setStatusStage("Validating branch IDs and numeric amounts...");
-        }, 500);
-
-        setTimeout(() => {
-            setUploadProgress(100);
-            setStatusStage("Validation complete. Ready for preview.");
-            setUploading(false);
-
-            const sampleTxns = initialMockTransactions.map((t) => ({
-                ...t,
-                reconciliationId: importReconciliationData.id
-            }));
-
-            const mIns = sampleTxns.filter((t) => t.sourceSheet === "M_IN");
-            const mOuts = sampleTxns.filter((t) => t.sourceSheet === "M_OUT");
-
-            setPreviewData({
-                fileName: "tamil_nadu_hubs_october_settlement.xlsx",
-                totalRows: sampleTxns.length,
-                mInCount: mIns.length,
-                mOutCount: mOuts.length,
-                validCount: sampleTxns.length - 2,
-                warningCount: 2,
-                errorCount: 0,
-                transactions: sampleTxns,
-                sampleMIns: mIns.slice(0, 4),
-                sampleMOuts: mOuts.slice(0, 4)
-            });
-        }, 800);
-    };
 
     const handleConfirmImport = async () => {
         if (!previewData) return;
+        let created = null;
         try {
             setConfirming(true);
-            await importTransactions(
-                importReconciliationData.id,
-                previewData.transactions
-            );
+
+            let targetId = importReconciliationData?.id;
+            let targetName = importReconciliationData?.reconciliationName;
+
+            // 1. If not yet created in DB (staged from Step 1), create it now upon user confirmation!
+            if (!targetId) {
+                created = await createReconciliation(importReconciliationData);
+                targetId = created.id;
+                targetName = created.reconciliationName;
+            }
+
+            // 2. Import transactions linked to confirmed targetId
+            try {
+                await importTransactions(
+                    targetId,
+                    previewData.transactions
+                );
+            } catch (importErr) {
+                // If transactions bulk import fails and we just created this reconciliation,
+                // roll it back immediately so zero incomplete records remain in database!
+                if (created && !importReconciliationData.id) {
+                    try {
+                        await deleteReconciliation(targetId);
+                    } catch (cleanupErr) {
+                        console.error("Failed to rollback incomplete reconciliation:", cleanupErr);
+                    }
+                }
+                throw importErr;
+            }
 
             triggerRefresh();
 
             addToast({
                 type: "success",
                 title: "Excel Import Successful",
-                message: `Imported ${previewData.mInCount} M_IN and ${previewData.mOutCount} M_OUT rows into "${importReconciliationData.reconciliationName}".`
+                message: `Imported ${previewData.mInCount} M_IN and ${previewData.mOutCount} M_OUT rows into "${targetName}".`
             });
 
             closeImportModal();
-            navigate(`/reconciliations/${importReconciliationData.id}?tab=transactions`);
+            navigate(`/reconciliations/${targetId}?tab=transactions`);
         } catch (err) {
             addToast({
                 type: "error",
@@ -245,9 +224,11 @@ export default function ImportExcelModal() {
                         <h2 className="modal-title">
                             Import Excel Transactions
                         </h2>
-                        <p className="modal-subtitle">
-                            Target Reconciliation: <strong>{importReconciliationData.reconciliationName}</strong> ({importReconciliationData.reconciliationCode})
-                        </p>
+                        {importReconciliationData?.reconciliationName && (
+                            <p className="modal-subtitle">
+                                For reconciliation: <strong className="text-white">{importReconciliationData.reconciliationName}</strong>
+                            </p>
+                        )}
                     </div>
                     <button
                         type="button"
@@ -261,10 +242,10 @@ export default function ImportExcelModal() {
 
                 <div className="modal-body">
                     {!previewData && !uploading && (
-                        <div>
+                        <div className="excel-dropzone-wrapper">
                             {/* Drag and Drop Zone */}
                             <div
-                                className={`dropzone-area ${isDragging ? "dropzone-dragging" : ""}`}
+                                className={`excel-dropzone-box ${isDragging ? "dropzone-dragging" : ""}`}
                                 onClick={handleBrowseClick}
                                 onDragOver={(e) => {
                                     e.preventDefault();
@@ -286,172 +267,112 @@ export default function ImportExcelModal() {
                                     }
                                 }}
                             >
-                                <div className="dropzone-icon-wrap">
-                                    <UploadCloud size={38} className="dropzone-icon" />
+                                <div className="excel-dropzone-icon-circle">
+                                    <UploadCloud size={40} className="excel-dropzone-cloud-icon" />
                                 </div>
-                                <h3 className="dropzone-title">
+                                <h3 className="excel-dropzone-title">
                                     Click or Drag &amp; Drop Excel Spreadsheet
                                 </h3>
-                                <p className="dropzone-hint">
-                                    Supports .xlsx, .xls, .csv with <code>M_IN</code> and <code>M_OUT</code> sheets
+                                <p className="excel-dropzone-subtitle">
+                                    Select your transaction workbook containing <code>M_IN</code> and <code>M_OUT</code> sheets
                                 </p>
-                                <div className="dropzone-actions">
+                                <div className="excel-supported-formats-pills">
+                                    <span className="excel-format-pill">.XLSX</span>
+                                    <span className="excel-format-pill">.XLS</span>
+                                    <span className="excel-format-pill">.CSV</span>
+                                    <span className="excel-format-divider">•</span>
+                                    <span className="excel-format-note">Requires M_IN &amp; M_OUT sheets</span>
+                                </div>
+                                <div className="excel-dropzone-button-wrap">
                                     <button
                                         type="button"
-                                        className="secondary-button"
+                                        className="excel-browse-btn"
                                         onClick={handleBrowseClick}
                                     >
-                                        <FileSpreadsheet size={16} />
+                                        <FileSpreadsheet size={17} />
                                         Browse File
                                     </button>
                                 </div>
-                            </div>
-
-                            {/* Sample Template Quick Click */}
-                            <div className="sample-template-box">
-                                <div className="sample-template-info">
-                                    <Sparkles size={18} className="text-blue-500" />
-                                    <div>
-                                        <div className="sample-template-title">
-                                            Quick Demo: Load Sample South Zone Dataset
-                                        </div>
-                                        <div className="sample-template-desc">
-                                            Pre-populated with 23 M In and 23 M Out transactions across Chennai, Madurai, Coimbatore, Trichy, Salem.
-                                        </div>
-                                    </div>
-                                </div>
-                                <button
-                                    type="button"
-                                    className="primary-button sample-btn"
-                                    onClick={handleLoadSampleDataset}
-                                >
-                                    Load Sample Excel
-                                </button>
                             </div>
                         </div>
                     )}
 
                     {uploading && (
                         <div className="upload-progress-container">
-                            <div className="uploading-spinner-wrap">
-                                <div className="uploading-spinner"></div>
+                            <div className="reconciliation-gear-animation">
+                                <Cpu size={32} className="spin text-blue-400" />
                             </div>
                             <h3 className="uploading-title">Processing Excel File</h3>
                             <p className="uploading-stage">{statusStage}</p>
-                            <div className="progress-bar-track">
-                                <div
-                                    className="progress-bar-fill"
-                                    style={{ width: `${uploadProgress}%` }}
-                                ></div>
-                            </div>
                             <div className="progress-percent">{uploadProgress}% complete</div>
                         </div>
                     )}
 
                     {previewData && (
-                        <div className="preview-container">
-                            {/* File summary pill */}
-                            <div className="file-summary-card">
-                                <div className="file-summary-left">
-                                    <div className="file-badge-icon">
-                                        <FileCheck size={22} className="text-emerald-500" />
+                        <div className="excel-preview-container">
+                            {/* File summary banner */}
+                            <div className="excel-preview-file-banner">
+                                <div className="excel-banner-left">
+                                    <div className="excel-file-icon-box">
+                                        <FileSpreadsheet size={24} className="excel-banner-icon" />
                                     </div>
-                                    <div>
-                                        <div className="file-name">{fileState?.name || previewData.fileName}</div>
-                                        <div className="file-meta">
-                                            {previewData.totalRows} total rows detected • Formatted for YesCapital
+                                    <div className="excel-file-info">
+                                        <div className="excel-file-title-row">
+                                            <span className="excel-filename">{fileState?.name || previewData.fileName}</span>
+                                            <span className="excel-filesize-badge">{fileState?.size || previewData.fileSize}</span>
+                                        </div>
+                                        <div className="excel-file-subtitle">
+                                            {previewData.totalRows} transactions parsed successfully • Ready for YesCapital Engine
                                         </div>
                                     </div>
                                 </div>
                                 <button
                                     type="button"
-                                    className="change-file-btn"
+                                    className="excel-change-file-btn"
                                     onClick={resetImport}
                                 >
+                                    <RotateCw size={14} />
                                     Change File
                                 </button>
                             </div>
 
-                            {/* Stat chips */}
-                            <div className="import-stat-grid">
-                                <div className="import-stat-card">
-                                    <div className="import-stat-label">M In Sheet</div>
-                                    <div className="import-stat-val text-blue-600">{previewData.mInCount} rows</div>
-                                </div>
-                                <div className="import-stat-card">
-                                    <div className="import-stat-label">M Out Sheet</div>
-                                    <div className="import-stat-val text-indigo-600">{previewData.mOutCount} rows</div>
-                                </div>
-                                <div className="import-stat-card">
-                                    <div className="import-stat-label">Valid Entries</div>
-                                    <div className="import-stat-val text-emerald-600">
-                                        <CheckCircle2 size={15} />
-                                        {previewData.validCount}
+                            {/* 4 KPI Stat Cards */}
+                            <div className="excel-preview-stat-grid">
+                                <div className="excel-stat-card">
+                                    <div className="excel-stat-header">
+                                        <span className="excel-stat-dot dot-cyan"></span>
+                                        <span className="excel-stat-label">M_IN Sheet</span>
+                                    </div>
+                                    <div className="excel-stat-val text-cyan">
+                                        {previewData.mInCount} <span className="excel-stat-unit">rows</span>
                                     </div>
                                 </div>
-                                <div className="import-stat-card">
-                                    <div className="import-stat-label">Warnings</div>
-                                    <div className="import-stat-val text-amber-600">
-                                        <AlertTriangle size={15} />
-                                        {previewData.warningCount}
+                                <div className="excel-stat-card">
+                                    <div className="excel-stat-header">
+                                        <span className="excel-stat-dot dot-indigo"></span>
+                                        <span className="excel-stat-label">M_OUT Sheet</span>
+                                    </div>
+                                    <div className="excel-stat-val text-indigo">
+                                        {previewData.mOutCount} <span className="excel-stat-unit">rows</span>
                                     </div>
                                 </div>
-                            </div>
-
-                            {/* Split preview snippet tables */}
-                            <div className="import-preview-tables">
-                                <div className="import-preview-column">
-                                    <div className="preview-column-header">
-                                        <span>Preview: M In (First 4 rows)</span>
-                                        <span className="badge-count">{previewData.mInCount} total</span>
+                                <div className="excel-stat-card">
+                                    <div className="excel-stat-header">
+                                        <CheckCircle2 size={15} className="text-emerald" />
+                                        <span className="excel-stat-label">Valid Entries</span>
                                     </div>
-                                    <table className="mini-preview-table">
-                                        <thead>
-                                            <tr>
-                                                <th>BRANCH</th>
-                                                <th>From BRANCH</th>
-                                                <th>AMOUNT</th>
-                                                <th>COMM</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {previewData.sampleMIns.map((row, idx) => (
-                                                <tr key={row.id || `min-${idx}`}>
-                                                    <td>{row.toBranchName}</td>
-                                                    <td>{row.fromBranchName}</td>
-                                                    <td className="text-right">₹{Number(row.amount).toLocaleString("en-IN")}</td>
-                                                    <td className="text-right">₹{row.commission}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                    <div className="excel-stat-val text-emerald">
+                                        {previewData.validCount} <span className="excel-stat-unit">verified</span>
+                                    </div>
                                 </div>
-
-                                <div className="import-preview-column">
-                                    <div className="preview-column-header">
-                                        <span>Preview: M Out (First 4 rows)</span>
-                                        <span className="badge-count">{previewData.mOutCount} total</span>
+                                <div className="excel-stat-card">
+                                    <div className="excel-stat-header">
+                                        <AlertTriangle size={15} className="text-amber" />
+                                        <span className="excel-stat-label">Warnings</span>
                                     </div>
-                                    <table className="mini-preview-table">
-                                        <thead>
-                                            <tr>
-                                                <th>BRANCH</th>
-                                                <th>To BRANCH</th>
-                                                <th>AMOUNT</th>
-                                                <th>COMM</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {previewData.sampleMOuts.map((row, idx) => (
-                                                <tr key={row.id || `mout-${idx}`}>
-                                                    <td>{row.fromBranchName}</td>
-                                                    <td>{row.toBranchName}</td>
-                                                    <td className="text-right">₹{Number(row.amount).toLocaleString("en-IN")}</td>
-                                                    <td className="text-right">₹{row.commission}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                    <div className="excel-stat-val text-amber">
+                                        {previewData.warningCount} <span className="excel-stat-unit">flagged</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>

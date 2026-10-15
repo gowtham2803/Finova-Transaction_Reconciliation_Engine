@@ -55,20 +55,27 @@ export default function Errors() {
     ];
 
     const filtered = useMemo(() => {
-        return errors.filter((err) => {
-            if (statusFilter !== "ALL" && err.status !== statusFilter) return false;
-            if (typeFilter !== "ALL" && err.errorType !== typeFilter) return false;
-            if (searchQuery) {
-                const q = searchQuery.toLowerCase();
-                return (
-                    err.id?.toLowerCase().includes(q) ||
-                    err.reconciliationName?.toLowerCase().includes(q) ||
-                    err.description?.toLowerCase().includes(q) ||
-                    err.transactionInfo?.toLowerCase().includes(q)
-                );
-            }
-            return true;
-        });
+        return errors
+            .filter((err) => {
+                if (statusFilter !== "ALL" && err.status !== statusFilter) return false;
+                if (typeFilter !== "ALL" && err.errorType !== typeFilter) return false;
+                if (searchQuery) {
+                    const q = searchQuery.toLowerCase();
+                    return (
+                        String(err.id)?.toLowerCase().includes(q) ||
+                        err.reconciliationName?.toLowerCase().includes(q) ||
+                        err.description?.toLowerCase().includes(q) ||
+                        err.transactionInfo?.toLowerCase().includes(q)
+                    );
+                }
+                return true;
+            })
+            .sort((a, b) => {
+                const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                if (timeB !== timeA) return timeB - timeA;
+                return Number(b.id) - Number(a.id);
+            });
     }, [errors, statusFilter, typeFilter, searchQuery]);
 
     const formatDate = (val) => {
@@ -87,7 +94,7 @@ export default function Errors() {
                 <div>
                     <h1 className="page-main-heading">Reconciliation Errors &amp; Exceptions</h1>
                     <p className="page-sub-heading">
-                        Enterprise exception management for commission variances, amount mismatches, and orphan transactions.
+                        Enterprise exception management.
                     </p>
                 </div>
 
@@ -105,22 +112,22 @@ export default function Errors() {
             </div>
 
             {/* Filter toolbar */}
-            <div className="content-card mb-4 p-4">
-                <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-                    <div className="search-input-wrapper max-w-md flex-1">
+            <div className="content-card errors-toolbar-card">
+                <div className="errors-toolbar-row">
+                    <div className="errors-search-box">
                         <Search size={15} className="search-icon" />
                         <input
                             type="text"
                             className="workspace-search-input"
-                            placeholder="Search by error ID, transaction details, or batch name..."
+                            placeholder="Search by error, transaction, or reconciliation..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
                     </div>
 
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <div className="flex items-center gap-1.5 mr-2">
-                            <span className="text-xs font-semibold text-slate-500">Status:</span>
+                    <div className="errors-filter-group">
+                        <span className="errors-filter-label">Status:</span>
+                        <div className="errors-pills-wrap">
                             {["ALL", "OPEN", "RESOLVED"].map((status) => (
                                 <button
                                     key={status}
@@ -132,21 +139,21 @@ export default function Errors() {
                                 </button>
                             ))}
                         </div>
+                    </div>
 
-                        <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-semibold text-slate-500">Type:</span>
-                            <select
-                                className="form-input text-xs py-1 px-2 h-8"
-                                value={typeFilter}
-                                onChange={(e) => setTypeFilter(e.target.value)}
-                            >
-                                {errorTypes.map((t) => (
-                                    <option key={t} value={t}>
-                                        {t.replace("_", " ")}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
+                    <div className="errors-filter-group">
+                        <span className="errors-filter-label">Type:</span>
+                        <select
+                            className="errors-type-select"
+                            value={typeFilter}
+                            onChange={(e) => setTypeFilter(e.target.value)}
+                        >
+                            {errorTypes.map((t) => (
+                                <option key={t} value={t}>
+                                    {t.replace(/_/g, " ")}
+                                </option>
+                            ))}
+                        </select>
                     </div>
                 </div>
             </div>
@@ -157,11 +164,11 @@ export default function Errors() {
                     <table className="enterprise-data-table">
                         <thead>
                             <tr>
-                                <th>Error ID</th>
-                                <th>Reconciliation Batch</th>
-                                <th>Transaction Context</th>
-                                <th>Type</th>
-                                <th>Description</th>
+                                <th className="sno-col">S.No</th>
+                                <th>Reconciliation</th>
+                                <th>Transaction</th>
+                                <th>Error</th>
+                                <th>Error Detail</th>
                                 <th>Status</th>
                                 <th>Created</th>
                                 <th className="text-center">Action</th>
@@ -181,16 +188,17 @@ export default function Errors() {
                                     </td>
                                 </tr>
                             ) : (
-                                filtered.map((err) => (
+                                filtered.map((err, index) => (
                                     <tr key={err.id}>
-                                        <td className="font-mono text-xs font-semibold text-slate-100">
-                                            {err.id}
+                                        <td className="sno-col">
+                                            {index + 1}
                                         </td>
                                         <td>
                                             <button
                                                 type="button"
-                                                className="text-left font-semibold text-blue-400 hover:underline text-xs"
+                                                className="error-rec-name-btn"
                                                 onClick={() => navigate(`/reconciliations/${err.reconciliationId}`)}
+                                                title={`Open ${err.reconciliationName || `Reconciliation #${err.reconciliationId}`}`}
                                             >
                                                 {err.reconciliationName || `Reconciliation #${err.reconciliationId}`}
                                             </button>

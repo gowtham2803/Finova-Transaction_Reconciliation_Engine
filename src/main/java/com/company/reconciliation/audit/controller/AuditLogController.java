@@ -2,6 +2,7 @@
 package com.company.reconciliation.audit.controller;
 
 import com.company.reconciliation.audit.dto.response.AuditLogResponse;
+import com.company.reconciliation.audit.dto.response.ReconciliationAuditSummaryResponse;
 import com.company.reconciliation.audit.service.AuditLogQueryService;
 import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -9,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/audit-logs")
@@ -57,5 +59,14 @@ public class AuditLogController {
                 );
 
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/summaries")
+    public ResponseEntity<List<ReconciliationAuditSummaryResponse>> getAuditSummaries(
+            @RequestParam(required = false) String action
+    ) {
+        List<ReconciliationAuditSummaryResponse> summaries =
+                auditLogQueryService.getReconciliationAuditSummaries(action);
+        return ResponseEntity.ok(summaries);
     }
 }

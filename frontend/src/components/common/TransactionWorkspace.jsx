@@ -49,6 +49,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
 
     // Unsaved changes tracking
     const [unsavedChanges, setUnsavedChanges] = useState(new Set()); // Set of "rowId-field" or rowIndex
+    const [deletedRowIds, setDeletedRowIds] = useState(new Set()); // Set of persisted transaction IDs pending deletion
 
     // Search and filter
     const [searchQuery, setSearchQuery] = useState("");
@@ -102,6 +103,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
             setMInRows(ins.map(toEditableRow));
             setMOutRows(outs.map(toEditableRow));
             setUnsavedChanges(new Set());
+            setDeletedRowIds(new Set());
         } catch (err) {
             addToast({
                 type: "error",
@@ -345,15 +347,17 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
 
             const newRows = allRows.filter((r) => r.isNew);
             const updatedRows = allRows.filter((r) => !r.isNew && unsavedChanges.has(r.id));
+            const deletedList = Array.from(deletedRowIds);
 
-            if (newRows.length > 0 || updatedRows.length > 0) {
-                await saveTransactions(reconciliationId, { newRows, updatedRows });
+            if (newRows.length > 0 || updatedRows.length > 0 || deletedList.length > 0) {
+                await saveTransactions(reconciliationId, { newRows, updatedRows, deletedRowIds: deletedList });
 
                 setUnsavedChanges(new Set());
+                setDeletedRowIds(new Set());
                 addToast({
                     type: "success",
                     title: "Transactions Saved",
-                    message: `Saved ${newRows.length + updatedRows.length} transaction record(s) successfully.`
+                    message: `Saved changes successfully (${newRows.length} added, ${updatedRows.length} updated, ${deletedList.length} deleted).`
                 });
 
                 if (onReconciliationUpdated) {
@@ -375,15 +379,15 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
     };
 
     useImperativeHandle(ref, () => ({
-        hasUnsavedChanges: () => unsavedChanges.size > 0,
+        hasUnsavedChanges: () => unsavedChanges.size > 0 || deletedRowIds.size > 0,
         savePendingChanges: async () => {
-            if (unsavedChanges.size === 0) return true;
+            if (unsavedChanges.size === 0 && deletedRowIds.size === 0) return true;
             return await handleSaveTransactions();
         },
         reloadWorkspace: async () => {
             return await loadWorkspaceData();
         }
-    }), [unsavedChanges, handleSaveTransactions, loadWorkspaceData]);
+    }), [unsavedChanges, deletedRowIds, handleSaveTransactions, loadWorkspaceData]);
 
     // Filtered lists
     const filteredMIn = useMemo(() => {
@@ -441,6 +445,19 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         const setter = isMIn ? setMInRows : setMOutRows;
         const toDeleteSet = new Set(rowIdsToDelete);
 
+        // Track persisted database row IDs for deletion
+        const persistedIdsToDelete = rowIdsToDelete.filter(
+            (id) => typeof id === "number" || (!String(id).startsWith("temp-") && !isNaN(Number(id)))
+        );
+
+        if (persistedIdsToDelete.length > 0) {
+            setDeletedRowIds((prev) => {
+                const next = new Set(prev);
+                persistedIdsToDelete.forEach((id) => next.add(Number(id)));
+                return next;
+            });
+        }
+
         setter((prev) => {
             const remaining = prev.filter((r) => !toDeleteSet.has(r.id));
             // Renumber sequential sourceRow
@@ -466,7 +483,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         addToast({
             type: "success",
             title: "Transactions Deleted",
-            message: `Successfully removed ${rowIdsToDelete.length} row(s) from ${isMIn ? "M In" : "M Out"}. Reconciliation volume updated.`
+            message: `Removed ${rowIdsToDelete.length} row(s) from ${isMIn ? "M In" : "M Out"}. Click 'Save' or 'Run Again' to persist.`
         });
     };
 
@@ -601,10 +618,10 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                 </div>
 
                 <div className="workspace-toolbar-right">
-                    {unsavedChanges.size > 0 && (
+                    {(unsavedChanges.size > 0 || deletedRowIds.size > 0) && (
                         <div className="unsaved-badge animate-pulse">
                             <span className="unsaved-dot"></span>
-                            {unsavedChanges.size} unsaved
+                            {unsavedChanges.size + deletedRowIds.size} unsaved
                         </div>
                     )}
 

@@ -141,4 +141,24 @@ class TransactionControllerTest {
         assertSame(expected, response.getBody());
         verify(transactionService).getTransactionsByFilter(filter);
     }
+
+    @Test
+    void deleteTransaction_shouldReturnNoContent() {
+        Long transactionId = 1L;
+
+        ResponseEntity<Void> response = transactionController.deleteTransaction(transactionId);
+
+        assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
+        verify(transactionService).deleteTransaction(transactionId);
+    }
+
+    @Test
+    void deleteTransactions_shouldReturnNoContent() {
+        List<Long> ids = List.of(1L, 2L);
+
+        ResponseEntity<Void> response = transactionController.deleteTransactions(ids);
+
+        assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
+        verify(transactionService).deleteTransactions(ids);
+    }
 }

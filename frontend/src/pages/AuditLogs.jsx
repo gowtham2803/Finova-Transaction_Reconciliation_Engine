@@ -1,28 +1,38 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { getAuditLogs } from "../services/mockApi";
+import { useNavigate } from "react-router-dom";
+import { getAuditLogSummaries } from "../services/mockApi";
 import { useApp } from "../context/AppContext";
 import {
     Search,
-    RotateCw
+    RotateCw,
+    Eye,
+    ChevronLeft,
+    ChevronRight,
+    X
 } from "lucide-react";
 
 export default function AuditLogs() {
+    const navigate = useNavigate();
     const { refreshSignal } = useApp();
 
-    const [logs, setLogs] = useState([]);
+    const [summaries, setSummaries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
     const [actionFilter, setActionFilter] = useState("ALL");
+    const [currentPage, setCurrentPage] = useState(1);
+    const pageSize = 10;
 
     const loadAuditData = useCallback(async () => {
         try {
             setLoading(true);
-            const data = await getAuditLogs();
-            setLogs(Array.isArray(data) ? data : []);
+            const data = await getAuditLogSummaries({ action: actionFilter });
+            setSummaries(Array.isArray(data) ? data : []);
+        } catch (err) {
+            console.error("Failed to load audit summaries:", err);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [actionFilter]);
 
     useEffect(() => {
         loadAuditData();
@@ -38,21 +48,30 @@ export default function AuditLogs() {
         "ERROR_RESOLVED"
     ];
 
-    const filtered = useMemo(() => {
-        return logs.filter((l) => {
-            if (actionFilter !== "ALL" && l.action !== actionFilter) return false;
-            if (searchQuery) {
-                const q = searchQuery.toLowerCase();
-                return (
-                    l.description?.toLowerCase().includes(q) ||
-                    l.reconciliationName?.toLowerCase().includes(q) ||
-                    l.user?.toLowerCase().includes(q) ||
-                    l.action?.toLowerCase().includes(q)
-                );
-            }
-            return true;
-        });
-    }, [logs, actionFilter, searchQuery]);
+    const filteredSummaries = useMemo(() => {
+        if (!searchQuery) return summaries;
+        const q = searchQuery.toLowerCase();
+        return summaries.filter((s) =>
+            s.reconciliationName?.toLowerCase().includes(q) ||
+            s.user?.toLowerCase().includes(q) ||
+            s.description?.toLowerCase().includes(q) ||
+            s.action?.toLowerCase().includes(q)
+        );
+    }, [summaries, searchQuery]);
+
+    const totalPages = Math.ceil(filteredSummaries.length / pageSize) || 1;
+
+    // Keep currentPage within valid bounds
+    useEffect(() => {
+        if (currentPage > totalPages && totalPages > 0) {
+            setCurrentPage(1);
+        }
+    }, [currentPage, totalPages]);
+
+    const paginatedSummaries = useMemo(() => {
+        const start = (currentPage - 1) * pageSize;
+        return filteredSummaries.slice(start, start + pageSize);
+    }, [filteredSummaries, currentPage, pageSize]);
 
     const formatDate = (val) => {
         if (!val) return "—";
@@ -73,7 +92,7 @@ export default function AuditLogs() {
                 <div>
                     <h1 className="page-main-heading">Audit History &amp; Compliance</h1>
                     <p className="page-sub-heading">
-                        Immutable regulatory audit trail logging every reconciliation execution, ledger modification, and exception sign-off.
+                        Immutable regulatory audit trail logging every reconciliation.
                     </p>
                 </div>
 
@@ -90,26 +109,45 @@ export default function AuditLogs() {
                 </div>
             </div>
 
-            {/* Filter toolbar */}
-            <div className="content-card mb-4 p-4">
-                <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-                    <div className="search-input-wrapper max-w-md flex-1">
+            {/* Filter toolbar: Search, Action Filter, and Pagination on a single horizontal line */}
+            <div className="content-card audit-toolbar-card">
+                <div className="audit-toolbar-row">
+                    <div className="audit-search-box">
                         <Search size={15} className="search-icon" />
                         <input
                             type="text"
                             className="workspace-search-input"
-                            placeholder="Search audit trail by description, user, or batch name..."
+                            placeholder="Search audit trail by reconciliation, user, action..."
                             value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onChange={(e) => {
+                                setSearchQuery(e.target.value);
+                                setCurrentPage(1);
+                            }}
                         />
+                        {searchQuery && (
+                            <button
+                                type="button"
+                                className="rec-search-clear"
+                                onClick={() => {
+                                    setSearchQuery("");
+                                    setCurrentPage(1);
+                                }}
+                                title="Clear search"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
                     </div>
 
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-slate-500">Action:</span>
+                    <div className="audit-filter-group">
+                        <span className="audit-filter-label">Action:</span>
                         <select
-                            className="form-input text-xs py-1 px-2 h-8"
+                            className="audit-action-select"
                             value={actionFilter}
-                            onChange={(e) => setActionFilter(e.target.value)}
+                            onChange={(e) => {
+                                setActionFilter(e.target.value);
+                                setCurrentPage(1);
+                            }}
                         >
                             {actions.map((act) => (
                                 <option key={act} value={act}>
@@ -117,6 +155,34 @@ export default function AuditLogs() {
                                 </option>
                             ))}
                         </select>
+                    </div>
+
+                    <div className="rec-pagination-nav">
+                        <button
+                            type="button"
+                            className="rec-pagination-btn"
+                            disabled={currentPage === 1}
+                            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                            title="Previous Page"
+                        >
+                            <ChevronLeft size={14} />
+                            <span>Previous</span>
+                        </button>
+
+                        <div className="rec-pagination-indicator">
+                            Page <span className="rec-pagination-current">{currentPage}</span> of <span className="rec-pagination-total">{totalPages}</span>
+                        </div>
+
+                        <button
+                            type="button"
+                            className="rec-pagination-btn"
+                            disabled={currentPage >= totalPages || totalPages === 0}
+                            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                            title="Next Page"
+                        >
+                            <span>Next</span>
+                            <ChevronRight size={14} />
+                        </button>
                     </div>
                 </div>
             </div>
@@ -129,55 +195,75 @@ export default function AuditLogs() {
                             <tr>
                                 <th>Timestamp</th>
                                 <th>User</th>
+                                <th>Reconciliation</th>
                                 <th>Action Event</th>
-                                <th>Entity Target</th>
-                                <th>Reconciliation Batch</th>
                                 <th>Prior State</th>
                                 <th>New State</th>
-                                <th>Operational Description</th>
+                                <th className="text-center">Action</th>
                             </tr>
                         </thead>
                         <tbody>
                             {loading ? (
                                 <tr>
-                                    <td colSpan={8} className="table-loading-cell">
+                                    <td colSpan={7} className="table-loading-cell">
                                         Loading audit history trail...
                                     </td>
                                 </tr>
-                            ) : filtered.length === 0 ? (
+                            ) : paginatedSummaries.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} className="table-empty-cell">
+                                    <td colSpan={7} className="table-empty-cell">
                                         No audit events matching current criteria.
                                     </td>
                                 </tr>
                             ) : (
-                                filtered.map((log) => (
-                                    <tr key={log.id}>
+                                paginatedSummaries.map((summary) => (
+                                    <tr key={summary.groupKey}>
                                         <td className="text-xs font-mono text-slate-400 whitespace-nowrap">
-                                            {formatDate(log.createdAt)}
+                                            {formatDate(summary.latestTimestamp)}
                                         </td>
                                         <td>
-                                            <div className="text-xs font-semibold text-slate-100">{log.user}</div>
+                                            <div className="text-xs font-semibold text-slate-100">{summary.user}</div>
+                                        </td>
+                                        <td>
+                                            <div className="rec-summary-cell">
+                                                <button
+                                                    type="button"
+                                                    className="error-rec-name-btn"
+                                                    onClick={() => summary.reconciliationId && navigate(`/reconciliations/${summary.reconciliationId}?tab=audit`)}
+                                                    title={`Open ${summary.reconciliationName} audit trail`}
+                                                >
+                                                    {summary.reconciliationName}
+                                                </button>
+                                                <span className="audit-records-badge">
+                                                    {summary.totalRecords} {summary.totalRecords === 1 ? "record" : "records"}
+                                                </span>
+                                            </div>
                                         </td>
                                         <td>
                                             <span className="audit-action-badge">
-                                                {log.action}
+                                                {summary.action}
                                             </span>
                                         </td>
-                                        <td className="text-xs text-slate-300 font-medium">
-                                            {log.entity} {log.entityId ? `#${log.entityId}` : ""}
-                                        </td>
-                                        <td className="text-xs text-slate-200 font-medium">
-                                            {log.reconciliationName || "—"}
-                                        </td>
                                         <td className="text-xs text-slate-400 max-w-xs truncate">
-                                            {log.oldValue || "—"}
+                                            {summary.oldValue || "—"}
                                         </td>
                                         <td className="text-xs text-slate-200 font-semibold max-w-xs truncate">
-                                            {log.newValue || "—"}
+                                            {summary.newValue || "—"}
                                         </td>
-                                        <td className="text-xs text-slate-300 max-w-sm">
-                                            {log.description}
+                                        <td className="text-center">
+                                            {summary.reconciliationId ? (
+                                                <button
+                                                    type="button"
+                                                    className="audit-view-all-btn"
+                                                    onClick={() => navigate(`/reconciliations/${summary.reconciliationId}?tab=audit`)}
+                                                    title={`View all ${summary.totalRecords} audit records for ${summary.reconciliationName}`}
+                                                >
+                                                    <Eye size={13} />
+                                                    <span>View All</span>
+                                                </button>
+                                            ) : (
+                                                <span className="text-slate-500 text-xs">—</span>
+                                            )}
                                         </td>
                                     </tr>
                                 ))
