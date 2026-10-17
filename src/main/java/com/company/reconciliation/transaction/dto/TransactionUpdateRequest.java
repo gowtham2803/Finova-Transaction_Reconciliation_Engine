@@ -10,13 +10,15 @@ import java.math.BigDecimal;
 
 public class TransactionUpdateRequest {
 
-    @NotNull(message = "From branch ID is required")
     @Positive(message = "From branch ID must be positive")
     private Long fromBranchId;
 
-    @NotNull(message = "To branch ID is required")
+    private String fromBranchName;
+
     @Positive(message = "To branch ID must be positive")
     private Long toBranchId;
+
+    private String toBranchName;
 
     @NotNull(message = "Amount is required")
     @DecimalMin(
@@ -54,12 +56,28 @@ public class TransactionUpdateRequest {
         this.fromBranchId = fromBranchId;
     }
 
+    public String getFromBranchName() {
+        return fromBranchName;
+    }
+
+    public void setFromBranchName(String fromBranchName) {
+        this.fromBranchName = fromBranchName;
+    }
+
     public Long getToBranchId() {
         return toBranchId;
     }
 
     public void setToBranchId(Long toBranchId) {
         this.toBranchId = toBranchId;
+    }
+
+    public String getToBranchName() {
+        return toBranchName;
+    }
+
+    public void setToBranchName(String toBranchName) {
+        this.toBranchName = toBranchName;
     }
 
     public BigDecimal getAmount() {

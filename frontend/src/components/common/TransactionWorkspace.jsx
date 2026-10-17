@@ -55,6 +55,19 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
     const [searchQuery, setSearchQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState("ALL"); // ALL, MATCHED, UNMATCHED, ERROR
 
+    // Single source of truth: strictly registered database branches
+    const allAvailableBranches = useMemo(() => {
+        return (branches || [])
+            .filter((b) => b && b.id !== undefined && b.id !== null)
+            .map((b) => ({
+                id: b.id,
+                name: b.code || b.name || `Branch #${b.id}`,
+                code: b.code || b.name || `Branch #${b.id}`,
+                fullName: b.name
+            }))
+            .sort((a, b) => (Number(a.id) || 999) - (Number(b.id) || 999));
+    }, [branches]);
+
     // Add rows modal
     const [addRowsModalState, setAddRowsModalState] = useState({
         isOpen: false,
@@ -68,14 +81,22 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
     const [pasteText, setPasteText] = useState("");
 
     const toEditableRow = (txn) => {
+        const fromCode = txn.fromBranchCode || txn.fromBranchName || "";
+        const toCode = txn.toBranchCode || txn.toBranchName || "";
         return {
             ...txn,
+            fromBranchCode: fromCode,
+            fromBranchName: fromCode,
+            toBranchCode: toCode,
+            toBranchName: toCode,
             amount: txn.amount !== null && txn.amount !== undefined ? String(txn.amount) : "",
             commission: txn.commission !== null && txn.commission !== undefined ? String(txn.commission) : "0",
             isNew: false,
             original: {
                 fromBranchId: txn.fromBranchId,
                 toBranchId: txn.toBranchId,
+                fromBranchCode: fromCode,
+                toBranchCode: toCode,
                 amount: txn.amount !== null && txn.amount !== undefined ? String(txn.amount) : "",
                 commission: txn.commission !== null && txn.commission !== undefined ? String(txn.commission) : "0"
             }
@@ -92,16 +113,47 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
 
             setBranches(branchList || []);
 
+            const branchMap = new Map();
+            (branchList || []).forEach((b) => {
+                if (b && b.id !== undefined) {
+                    branchMap.set(String(b.id), b.code || b.name || "");
+                }
+            });
+
             const ins = (txns || [])
                 .filter((t) => t.sourceSheet === "M_IN")
-                .sort((a, b) => (a.sourceRow || 0) - (b.sourceRow || 0));
+                .sort((a, b) => (a.sourceRow || 0) - (b.sourceRow || 0))
+                .map((t) => {
+                    const row = toEditableRow(t);
+                    if (!row.fromBranchCode && row.fromBranchId && branchMap.has(String(row.fromBranchId))) {
+                        row.fromBranchCode = branchMap.get(String(row.fromBranchId));
+                        row.fromBranchName = row.fromBranchCode;
+                    }
+                    if (!row.toBranchCode && row.toBranchId && branchMap.has(String(row.toBranchId))) {
+                        row.toBranchCode = branchMap.get(String(row.toBranchId));
+                        row.toBranchName = row.toBranchCode;
+                    }
+                    return row;
+                });
 
             const outs = (txns || [])
                 .filter((t) => t.sourceSheet === "M_OUT")
-                .sort((a, b) => (a.sourceRow || 0) - (b.sourceRow || 0));
+                .sort((a, b) => (a.sourceRow || 0) - (b.sourceRow || 0))
+                .map((t) => {
+                    const row = toEditableRow(t);
+                    if (!row.fromBranchCode && row.fromBranchId && branchMap.has(String(row.fromBranchId))) {
+                        row.fromBranchCode = branchMap.get(String(row.fromBranchId));
+                        row.fromBranchName = row.fromBranchCode;
+                    }
+                    if (!row.toBranchCode && row.toBranchId && branchMap.has(String(row.toBranchId))) {
+                        row.toBranchCode = branchMap.get(String(row.toBranchId));
+                        row.toBranchName = row.toBranchCode;
+                    }
+                    return row;
+                });
 
-            setMInRows(ins.map(toEditableRow));
-            setMOutRows(outs.map(toEditableRow));
+            setMInRows(ins);
+            setMOutRows(outs);
             setUnsavedChanges(new Set());
             setDeletedRowIds(new Set());
         } catch (err) {
@@ -120,15 +172,20 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
     }, [loadWorkspaceData, refreshSignal]);
 
     function createBlankRow(sheet, index) {
+        const bList = allAvailableBranches.length > 0 ? allAvailableBranches : branches;
+        const b1 = bList.length > 0 ? bList[0] : null;
+        const b2 = bList.length > 1 ? bList[1] : b1;
         return {
             id: `temp-${sheet}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
             reconciliationId: Number(reconciliationId),
             sourceSheet: sheet,
             sourceRow: index + 1,
-            fromBranchId: sheet === "M_IN" ? 5 : 1, // Default Salem or Chennai
-            fromBranchName: sheet === "M_IN" ? "Salem" : "Chennai",
-            toBranchId: sheet === "M_IN" ? 1 : 3, // Default Chennai or Coimbatore
-            toBranchName: sheet === "M_IN" ? "Chennai" : "Coimbatore",
+            fromBranchId: b1 ? b1.id : "",
+            fromBranchName: b1 ? (b1.code || b1.name) : "",
+            fromBranchCode: b1 ? (b1.code || b1.name) : "",
+            toBranchId: b2 ? b2.id : "",
+            toBranchName: b2 ? (b2.code || b2.name) : "",
+            toBranchCode: b2 ? (b2.code || b2.name) : "",
             amount: "",
             commission: "0",
             status: "PENDING",
@@ -175,14 +232,54 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
 
         setter((prev) => {
             const updated = [...prev];
-            const target = { ...updated[rowIndex], [field]: value };
+            const target = { ...updated[rowIndex] };
 
-            if (field === "fromBranchId") {
-                const b = branches.find((item) => String(item.id) === String(value));
-                target.fromBranchName = b ? b.name : "";
+            if (field === "fromBranch" || field === "fromBranchCode") {
+                const clean = (value || "").trim().toUpperCase();
+                target.fromBranchCode = value.toUpperCase();
+                target.fromBranchName = value.toUpperCase();
+                const b = allAvailableBranches.find(
+                    (item) => (item.code && item.code.toUpperCase() === clean) ||
+                              (item.name && item.name.toUpperCase() === clean)
+                );
+                if (b) {
+                    target.fromBranchId = b.id;
+                    target.fromBranchCode = b.code || b.name;
+                    target.fromBranchName = b.code || b.name;
+                    target.fromBranchInvalid = false;
+                } else {
+                    target.fromBranchId = null;
+                    target.fromBranchInvalid = clean.length > 0;
+                }
+            } else if (field === "toBranch" || field === "toBranchCode") {
+                const clean = (value || "").trim().toUpperCase();
+                target.toBranchCode = value.toUpperCase();
+                target.toBranchName = value.toUpperCase();
+                const b = allAvailableBranches.find(
+                    (item) => (item.code && item.code.toUpperCase() === clean) ||
+                              (item.name && item.name.toUpperCase() === clean)
+                );
+                if (b) {
+                    target.toBranchId = b.id;
+                    target.toBranchCode = b.code || b.name;
+                    target.toBranchName = b.code || b.name;
+                    target.toBranchInvalid = false;
+                } else {
+                    target.toBranchId = null;
+                    target.toBranchInvalid = clean.length > 0;
+                }
+            } else if (field === "fromBranchId") {
+                target.fromBranchId = value;
+                const b = allAvailableBranches.find((item) => String(item.id) === String(value));
+                target.fromBranchName = b ? (b.code || b.name) : "";
+                target.fromBranchCode = b ? (b.code || b.name) : "";
             } else if (field === "toBranchId") {
-                const b = branches.find((item) => String(item.id) === String(value));
-                target.toBranchName = b ? b.name : "";
+                target.toBranchId = value;
+                const b = allAvailableBranches.find((item) => String(item.id) === String(value));
+                target.toBranchName = b ? (b.code || b.name) : "";
+                target.toBranchCode = b ? (b.code || b.name) : "";
+            } else {
+                target[field] = value;
             }
 
             updated[rowIndex] = target;
@@ -198,6 +295,29 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         });
     };
 
+    const handleBranchBlur = (sheet, rowIndex, field, value) => {
+        const clean = (value || "").trim().toUpperCase();
+        if (!clean) return;
+
+        const exists = allAvailableBranches.some(
+            (b) => (b.code && b.code.toUpperCase() === clean) ||
+                   (b.name && b.name.toUpperCase() === clean)
+        );
+
+        if (!exists) {
+            const sheetLabel = sheet === "M_IN" ? "M In" : "M Out";
+            const isFirstCol = (sheet === "M_IN" && (field === "toBranch" || field === "toBranchCode")) ||
+                               (sheet === "M_OUT" && (field === "fromBranch" || field === "fromBranchCode"));
+            const fieldLabel = isFirstCol ? "Branch" : (sheet === "M_IN" ? "From Branch" : "To Branch");
+
+            addToast({
+                type: "error",
+                title: "Invalid Branch Code",
+                message: `[${sheetLabel} Row ${rowIndex + 1}] '${clean}' is not recognized in the database. Only registered branch codes are accepted.`
+            });
+        }
+    };
+
     // =========================================================================
     // EXCEL CLIPBOARD COPY & PASTE PARSER (Ctrl+V and Pasting TSV/CSV)
     // =========================================================================
@@ -206,8 +326,9 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
 
         const lines = rawText.trim().split(/\r\n|\n|\r/);
         const parsedRows = [];
+        const pasteErrors = [];
 
-        lines.forEach((line) => {
+        lines.forEach((line, lineIdx) => {
             if (!line.trim()) return;
             // Split by tab (\t) or comma or multiple spaces
             let parts = line.split("\t");
@@ -220,6 +341,12 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
 
             parts = parts.map((p) => p.trim());
 
+            // Skip header lines if user copied column headers
+            const firstColLower = (parts[0] || "").toLowerCase();
+            if (firstColLower.includes("branch") || firstColLower.includes("source") || firstColLower.includes("sheet")) {
+                return;
+            }
+
             // Structure expected:
             // For M In: [BRANCH, From BRANCH, AMOUNT, COMMISSION]
             // For M Out: [BRANCH, To BRANCH, AMOUNT, COMMISSION]
@@ -229,43 +356,57 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                 const amountText = (parts[2] || "").replace(/[^0-9.]/g, "");
                 const commText = (parts[3] || "0").replace(/[^0-9.]/g, "");
 
-                const findBranchId = (text) => {
-                    const match = branches.find(
-                        (b) => b.name.toLowerCase() === text.toLowerCase() || b.code.toLowerCase() === text.toLowerCase()
+                const findBranchInfo = (text) => {
+                    const clean = (text || "").trim();
+                    if (!clean) return { id: "", name: "", code: "", found: false };
+                    const match = allAvailableBranches.find(
+                        (b) => (b.name && b.name.toLowerCase() === clean.toLowerCase()) ||
+                               (b.code && b.code.toLowerCase() === clean.toLowerCase()) ||
+                               (b.fullName && b.fullName.toLowerCase() === clean.toLowerCase())
                     );
-                    return match ? match.id : 1;
+                    return match
+                        ? { id: match.id, name: match.code || match.name, code: match.code || match.name, found: true }
+                        : { id: null, name: clean, code: clean, found: false };
                 };
 
-                const findBranchName = (text) => {
-                    const match = branches.find(
-                        (b) => b.name.toLowerCase() === text.toLowerCase() || b.code.toLowerCase() === text.toLowerCase()
-                    );
-                    return match ? match.name : "Chennai";
-                };
+                const b1 = findBranchInfo(branch1Text);
+                const b2 = findBranchInfo(branch2Text);
 
-                if (sheet === "M_IN") {
-                    // M In: BRANCH is toBranch, From BRANCH is fromBranch
-                    parsedRows.push({
-                        toBranchId: findBranchId(branch1Text),
-                        toBranchName: findBranchName(branch1Text),
-                        fromBranchId: findBranchId(branch2Text),
-                        fromBranchName: findBranchName(branch2Text),
-                        amount: amountText || "100000",
-                        commission: commText || "0"
-                    });
-                } else {
-                    // M Out: BRANCH is fromBranch, To BRANCH is toBranch
-                    parsedRows.push({
-                        fromBranchId: findBranchId(branch1Text),
-                        fromBranchName: findBranchName(branch1Text),
-                        toBranchId: findBranchId(branch2Text),
-                        toBranchName: findBranchName(branch2Text),
-                        amount: amountText || "100000",
-                        commission: commText || "0"
-                    });
+                const lineNum = lineIdx + 1;
+                const isMIn = sheet === "M_IN";
+                const fromBranchInfo = isMIn ? b2 : b1;
+                const toBranchInfo = isMIn ? b1 : b2;
+                const fromRaw = isMIn ? branch2Text : branch1Text;
+                const toRaw = isMIn ? branch1Text : branch2Text;
+
+                if (!fromBranchInfo.found) {
+                    pasteErrors.push(`[Line ${lineNum}] From Branch '${fromRaw}' does not exist in the database.`);
                 }
+                if (!toBranchInfo.found) {
+                    pasteErrors.push(`[Line ${lineNum}] To Branch '${toRaw}' does not exist in the database.`);
+                }
+
+                parsedRows.push({
+                    toBranchId: toBranchInfo.id,
+                    toBranchName: toBranchInfo.code || toBranchInfo.name,
+                    toBranchCode: toBranchInfo.code || toBranchInfo.name,
+                    fromBranchId: fromBranchInfo.id,
+                    fromBranchName: fromBranchInfo.code || fromBranchInfo.name,
+                    fromBranchCode: fromBranchInfo.code || fromBranchInfo.name,
+                    amount: amountText || "100000",
+                    commission: commText || "0"
+                });
             }
         });
+
+        if (pasteErrors.length > 0) {
+            addToast({
+                type: "error",
+                title: "Pasted Data Rejected",
+                message: `Pasted data contains unregistered branches (${pasteErrors.length} error(s)): ${pasteErrors.slice(0, 3).join("; ")}${pasteErrors.length > 3 ? ` (+${pasteErrors.length - 3} more)` : ""}. Only branches defined in the database are allowed.`
+            });
+            return;
+        }
 
         if (parsedRows.length === 0) {
             addToast({
@@ -331,16 +472,46 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
             const validationErrors = [];
             allRows.forEach((row, i) => {
                 const sheetName = row.sourceSheet === "M_IN" ? "M In" : "M Out";
-                if (!row.fromBranchId) validationErrors.push(`${sheetName} row ${i + 1}: From Branch is required.`);
-                if (!row.toBranchId) validationErrors.push(`${sheetName} row ${i + 1}: To Branch is required.`);
-                if (!row.amount || Number(row.amount) <= 0) validationErrors.push(`${sheetName} row ${i + 1}: Positive amount required.`);
+                const rowNum = row.sourceRow || (i + 1);
+
+                if (!row.fromBranchId) {
+                    const entered = row.fromBranchCode || row.fromBranchName;
+                    if (entered) {
+                        validationErrors.push(`[${sheetName} Row ${rowNum}] From Branch '${entered}' does not exist in the database.`);
+                    } else {
+                        validationErrors.push(`[${sheetName} Row ${rowNum}] From Branch is required.`);
+                    }
+                } else {
+                    const fromValid = allAvailableBranches.some((b) => String(b.id) === String(row.fromBranchId));
+                    if (!fromValid) {
+                        validationErrors.push(`[${sheetName} Row ${rowNum}] From Branch '${row.fromBranchCode || row.fromBranchName || row.fromBranchId}' does not exist in the database.`);
+                    }
+                }
+
+                if (!row.toBranchId) {
+                    const entered = row.toBranchCode || row.toBranchName;
+                    if (entered) {
+                        validationErrors.push(`[${sheetName} Row ${rowNum}] To Branch '${entered}' does not exist in the database.`);
+                    } else {
+                        validationErrors.push(`[${sheetName} Row ${rowNum}] To Branch is required.`);
+                    }
+                } else {
+                    const toValid = allAvailableBranches.some((b) => String(b.id) === String(row.toBranchId));
+                    if (!toValid) {
+                        validationErrors.push(`[${sheetName} Row ${rowNum}] To Branch '${row.toBranchCode || row.toBranchName || row.toBranchId}' does not exist in the database.`);
+                    }
+                }
+
+                if (!row.amount || Number(row.amount) <= 0) {
+                    validationErrors.push(`[${sheetName} Row ${rowNum}] Positive amount required.`);
+                }
             });
 
             if (validationErrors.length > 0) {
                 addToast({
                     type: "error",
                     title: "Validation Incomplete",
-                    message: validationErrors.slice(0, 3).join(" • ")
+                    message: validationErrors.slice(0, 3).join(" • ") + (validationErrors.length > 3 ? ` (+${validationErrors.length - 3} more)` : "")
                 });
                 return false;
             }
@@ -395,8 +566,8 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
             if (statusFilter !== "ALL" && row.status !== statusFilter) return false;
             if (searchQuery) {
                 const q = searchQuery.toLowerCase();
-                const fromMatch = row.fromBranchName?.toLowerCase().includes(q);
-                const toMatch = row.toBranchName?.toLowerCase().includes(q);
+                const fromMatch = row.fromBranchName?.toLowerCase().includes(q) || row.fromBranchCode?.toLowerCase().includes(q);
+                const toMatch = row.toBranchName?.toLowerCase().includes(q) || row.toBranchCode?.toLowerCase().includes(q);
                 const amtMatch = String(row.amount).includes(q);
                 return fromMatch || toMatch || amtMatch;
             }
@@ -409,8 +580,8 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
             if (statusFilter !== "ALL" && row.status !== statusFilter) return false;
             if (searchQuery) {
                 const q = searchQuery.toLowerCase();
-                const fromMatch = row.fromBranchName?.toLowerCase().includes(q);
-                const toMatch = row.toBranchName?.toLowerCase().includes(q);
+                const fromMatch = row.fromBranchName?.toLowerCase().includes(q) || row.fromBranchCode?.toLowerCase().includes(q);
+                const toMatch = row.toBranchName?.toLowerCase().includes(q) || row.toBranchCode?.toLowerCase().includes(q);
                 const amtMatch = String(row.amount).includes(q);
                 return fromMatch || toMatch || amtMatch;
             }
@@ -711,7 +882,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                         subtitle="Incoming funds into Branch"
                         rows={filteredMIn}
                         totalRowCount={mInRows.length}
-                        branches={branches}
+                        branches={allAvailableBranches}
                         unsavedChanges={unsavedChanges}
                         hoveredCounterpartId={hoveredCounterpartId}
                         selectedTransactionId={selectedTransaction?.id}
@@ -721,6 +892,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                         onSelectRow={handleSelectAndScrollCounterpart}
                         onInspectRow={(row) => setDetailModalTxn(row)}
                         onCellChange={handleCellChange}
+                        onBranchBlur={handleBranchBlur}
                         onDeleteRows={handleDeleteRows}
                         onClearFilters={handleClearFilters}
                         onOpenAddRows={() =>
@@ -747,7 +919,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                         subtitle="Outgoing transfers from Branch"
                         rows={filteredMOut}
                         totalRowCount={mOutRows.length}
-                        branches={branches}
+                        branches={allAvailableBranches}
                         unsavedChanges={unsavedChanges}
                         hoveredCounterpartId={hoveredCounterpartId}
                         selectedTransactionId={selectedTransaction?.id}
@@ -757,6 +929,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                         onSelectRow={handleSelectAndScrollCounterpart}
                         onInspectRow={(row) => setDetailModalTxn(row)}
                         onCellChange={handleCellChange}
+                        onBranchBlur={handleBranchBlur}
                         onDeleteRows={handleDeleteRows}
                         onClearFilters={handleClearFilters}
                         onOpenAddRows={() =>
@@ -858,7 +1031,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                             <textarea
                                 rows={6}
                                 className="form-textarea font-mono text-xs w-full"
-                                placeholder={`Example:\nChennai\tSalem\t100000\t150\nChennai\tCoimbatore\t250000\t120`}
+                                placeholder={`Example:\nPKT\tPDK\t100000\t150\nChennai\tCoimbatore\t250000\t120`}
                                 value={pasteText}
                                 onChange={(e) => setPasteText(e.target.value)}
                                 autoFocus
@@ -907,7 +1080,7 @@ function SpreadsheetTable({
     subtitle,
     rows,
     totalRowCount,
-    branches,
+    branches = [],
     unsavedChanges,
     hoveredCounterpartId,
     selectedTransactionId,
@@ -917,6 +1090,7 @@ function SpreadsheetTable({
     onSelectRow,
     onInspectRow,
     onCellChange,
+    onBranchBlur,
     onOpenAddRows,
     onOpenPasteModal,
     onTablePaste,
@@ -1220,12 +1394,33 @@ function SpreadsheetTable({
                     </thead>
                     <tbody>
                         {rows.map((row, idx) => {
+                            const branch1Prop = isMIn ? "toBranch" : "fromBranch";
+                            const branch2Prop = isMIn ? "fromBranch" : "toBranch";
                             const branch1Field = isMIn ? "toBranchId" : "fromBranchId";
                             const branch2Field = isMIn ? "fromBranchId" : "toBranchId";
+
+                            const resolveBranchCode = (isTo) => {
+                                const directCode = isTo
+                                    ? (row.toBranchCode || row.toBranchName)
+                                    : (row.fromBranchCode || row.fromBranchName);
+                                if (directCode) return directCode;
+                                const branchId = isTo ? row.toBranchId : row.fromBranchId;
+                                if (branchId) {
+                                    const found = (branches || []).find((b) => String(b.id) === String(branchId));
+                                    if (found) return found.code || found.name || "";
+                                }
+                                return "";
+                            };
+
+                            const branch1Value = resolveBranchCode(isMIn);
+                            const branch2Value = resolveBranchCode(!isMIn);
+
                             const isRowUnsaved = unsavedChanges.has(row.id);
                             const errorFields = getRowErrorFields(row, isMIn);
-                            const isBranch1Error = errorFields.has(branch1Field);
-                            const isBranch2Error = errorFields.has(branch2Field);
+                            const isBranch1Invalid = isMIn ? row.toBranchInvalid : row.fromBranchInvalid;
+                            const isBranch2Invalid = isMIn ? row.fromBranchInvalid : row.toBranchInvalid;
+                            const isBranch1Error = errorFields.has(branch1Field) || isBranch1Invalid;
+                            const isBranch2Error = errorFields.has(branch2Field) || isBranch2Invalid;
                             const isAmountError = errorFields.has("amount");
                             const isCommError = errorFields.has("commission");
 
@@ -1276,44 +1471,50 @@ function SpreadsheetTable({
 
                                     {/* Branch 1 */}
                                     <td className={`col-branch cell-editable ${isBranch1Error ? "cell-has-error" : ""}`}>
-                                        <select
-                                            className="grid-cell-select"
-                                            value={row[branch1Field] || ""}
+                                        <input
+                                            type="text"
+                                            className="grid-cell-input font-medium uppercase"
+                                            placeholder="Code"
+                                            maxLength={10}
+                                            value={branch1Value}
                                             onClick={(e) => e.stopPropagation()}
                                             onDoubleClick={(e) => e.stopPropagation()}
                                             onChange={(e) =>
-                                                onCellChange(sheet, idx, branch1Field, e.target.value)
+                                                onCellChange(sheet, idx, branch1Prop, e.target.value)
                                             }
-                                            title={isBranch1Error ? row.errorReason || "Branch mismatch issue" : undefined}
-                                        >
-                                            <option value="">Select branch</option>
-                                            {branches.map((b) => (
-                                                <option key={b.id} value={b.id}>
-                                                    {b.name}
-                                                </option>
-                                            ))}
-                                        </select>
+                                            onBlur={(e) =>
+                                                onBranchBlur && onBranchBlur(sheet, idx, branch1Prop, e.target.value)
+                                            }
+                                            title={
+                                                isBranch1Error
+                                                    ? row.errorReason || (branch1Value ? `'${branch1Value}' is not recognized in the database.` : "Branch code is required.")
+                                                    : undefined
+                                            }
+                                        />
                                     </td>
 
                                     {/* Branch 2 (From or To) */}
                                     <td className={`col-branch cell-editable ${isBranch2Error ? "cell-has-error" : ""}`}>
-                                        <select
-                                            className="grid-cell-select"
-                                            value={row[branch2Field] || ""}
+                                        <input
+                                            type="text"
+                                            className="grid-cell-input font-medium uppercase"
+                                            placeholder="Code"
+                                            maxLength={10}
+                                            value={branch2Value}
                                             onClick={(e) => e.stopPropagation()}
                                             onDoubleClick={(e) => e.stopPropagation()}
                                             onChange={(e) =>
-                                                onCellChange(sheet, idx, branch2Field, e.target.value)
+                                                onCellChange(sheet, idx, branch2Prop, e.target.value)
                                             }
-                                            title={isBranch2Error ? row.errorReason || "Branch mismatch issue" : undefined}
-                                        >
-                                            <option value="">Select branch</option>
-                                            {branches.map((b) => (
-                                                <option key={b.id} value={b.id}>
-                                                    {b.name}
-                                                </option>
-                                            ))}
-                                        </select>
+                                            onBlur={(e) =>
+                                                onBranchBlur && onBranchBlur(sheet, idx, branch2Prop, e.target.value)
+                                            }
+                                            title={
+                                                isBranch2Error
+                                                    ? row.errorReason || (branch2Value ? `'${branch2Value}' is not recognized in the database.` : "Branch code is required.")
+                                                    : undefined
+                                            }
+                                        />
                                     </td>
 
                                     {/* Amount */}

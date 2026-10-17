@@ -1,30 +1,35 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { getAllErrors, resolveError } from "../services/mockApi";
+import { getErrorSummaries } from "../services/mockApi";
 import { useApp } from "../context/AppContext";
-import ResolveErrorModal from "../components/modals/ResolveErrorModal";
 import {
     Search,
-    CheckCircle2,
-    RotateCw
+    RotateCw,
+    Eye,
+    ChevronLeft,
+    ChevronRight,
+    X
 } from "lucide-react";
 
 export default function Errors() {
     const navigate = useNavigate();
-    const { addToast, refreshSignal, triggerRefresh } = useApp();
+    const { refreshSignal } = useApp();
 
-    const [errors, setErrors] = useState([]);
+    const [summaries, setSummaries] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState("ALL"); // ALL, OPEN, RESOLVED
     const [typeFilter, setTypeFilter] = useState("ALL");
-    const [resolvingError, setResolvingError] = useState(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const pageSize = 10;
 
     const loadErrorsData = useCallback(async () => {
         try {
             setLoading(true);
-            const data = await getAllErrors();
-            setErrors(Array.isArray(data) ? data : []);
+            const data = await getErrorSummaries();
+            setSummaries(Array.isArray(data) ? data : []);
+        } catch (err) {
+            console.error("Failed to load error summaries:", err);
         } finally {
             setLoading(false);
         }
@@ -34,19 +39,10 @@ export default function Errors() {
         loadErrorsData();
     }, [loadErrorsData, refreshSignal]);
 
-    const handleConfirmResolve = async (errorId, notes) => {
-        await resolveError(errorId, notes);
-        await loadErrorsData();
-        triggerRefresh();
-        addToast({
-            type: "success",
-            title: "Error Resolved",
-            message: `Exception voucher ${errorId} resolved successfully.`
-        });
-    };
-
     const errorTypes = [
         "ALL",
+        "MISSING_M_IN",
+        "MISSING_M_OUT",
         "COMMISSION_ERROR",
         "AMOUNT_MISMATCH",
         "MISSING_TRANSACTION",
@@ -54,47 +50,62 @@ export default function Errors() {
         "DUPLICATE_WARNING"
     ];
 
-    const filtered = useMemo(() => {
-        return errors
-            .filter((err) => {
-                if (statusFilter !== "ALL" && err.status !== statusFilter) return false;
-                if (typeFilter !== "ALL" && err.errorType !== typeFilter) return false;
-                if (searchQuery) {
-                    const q = searchQuery.toLowerCase();
-                    return (
-                        String(err.id)?.toLowerCase().includes(q) ||
-                        err.reconciliationName?.toLowerCase().includes(q) ||
-                        err.description?.toLowerCase().includes(q) ||
-                        err.transactionInfo?.toLowerCase().includes(q)
-                    );
-                }
-                return true;
-            })
-            .sort((a, b) => {
-                const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-                const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-                if (timeB !== timeA) return timeB - timeA;
-                return Number(b.id) - Number(a.id);
-            });
-    }, [errors, statusFilter, typeFilter, searchQuery]);
+    const filteredSummaries = useMemo(() => {
+        return summaries.filter((group) => {
+            if (statusFilter !== "ALL") {
+                if (statusFilter === "OPEN" && group.openErrorsCount === 0) return false;
+                if (statusFilter === "RESOLVED" && group.openErrorsCount > 0) return false;
+            }
+            if (typeFilter !== "ALL" && group.latestErrorType !== typeFilter) {
+                return false;
+            }
+            if (searchQuery) {
+                const q = searchQuery.toLowerCase();
+                return (
+                    group.reconciliationName?.toLowerCase().includes(q) ||
+                    group.reconciliationCode?.toLowerCase().includes(q) ||
+                    group.user?.toLowerCase().includes(q) ||
+                    group.latestErrorType?.toLowerCase().includes(q) ||
+                    group.latestDescription?.toLowerCase().includes(q)
+                );
+            }
+            return true;
+        });
+    }, [summaries, statusFilter, typeFilter, searchQuery]);
+
+    const totalPages = Math.ceil(filteredSummaries.length / pageSize) || 1;
+
+    useEffect(() => {
+        if (currentPage > totalPages && totalPages > 0) {
+            setCurrentPage(1);
+        }
+    }, [currentPage, totalPages]);
+
+    const paginatedSummaries = useMemo(() => {
+        const start = (currentPage - 1) * pageSize;
+        return filteredSummaries.slice(start, start + pageSize);
+    }, [filteredSummaries, currentPage, pageSize]);
 
     const formatDate = (val) => {
         if (!val) return "—";
         const d = new Date(val);
-        return isNaN(d.getTime()) ? val : d.toLocaleDateString("en-IN", {
+        return isNaN(d.getTime()) ? val : d.toLocaleString("en-IN", {
             day: "2-digit",
             month: "short",
-            year: "numeric"
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
         });
     };
 
     return (
-        <div className="errors-page-container">
+        <div className="audit-page-container">
             <div className="page-header-row">
                 <div>
                     <h1 className="page-main-heading">Reconciliation Errors &amp; Exceptions</h1>
                     <p className="page-sub-heading">
-                        Enterprise exception management.
+                        Enterprise exception management grouped by reconciliation.
                     </p>
                 </div>
 
@@ -111,42 +122,61 @@ export default function Errors() {
                 </div>
             </div>
 
-            {/* Filter toolbar */}
-            <div className="content-card errors-toolbar-card">
-                <div className="errors-toolbar-row">
-                    <div className="errors-search-box">
+            {/* Filter toolbar: Search, Status Filter, Type Filter, and Pagination on a single horizontal line */}
+            <div className="content-card audit-toolbar-card">
+                <div className="audit-toolbar-row">
+                    <div className="audit-search-box">
                         <Search size={15} className="search-icon" />
                         <input
                             type="text"
                             className="workspace-search-input"
-                            placeholder="Search by error, transaction, or reconciliation..."
+                            placeholder="Search errors by reconciliation, user, type..."
                             value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onChange={(e) => {
+                                setSearchQuery(e.target.value);
+                                setCurrentPage(1);
+                            }}
                         />
+                        {searchQuery && (
+                            <button
+                                type="button"
+                                className="rec-search-clear"
+                                onClick={() => {
+                                    setSearchQuery("");
+                                    setCurrentPage(1);
+                                }}
+                                title="Clear search"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
                     </div>
 
-                    <div className="errors-filter-group">
-                        <span className="errors-filter-label">Status:</span>
-                        <div className="errors-pills-wrap">
-                            {["ALL", "OPEN", "RESOLVED"].map((status) => (
-                                <button
-                                    key={status}
-                                    type="button"
-                                    className={`filter-btn-pill ${statusFilter === status ? "filter-btn-pill-active" : ""}`}
-                                    onClick={() => setStatusFilter(status)}
-                                >
-                                    {status}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="errors-filter-group">
-                        <span className="errors-filter-label">Type:</span>
+                    <div className="audit-filter-group">
+                        <span className="audit-filter-label">Status:</span>
                         <select
-                            className="errors-type-select"
+                            className="audit-action-select"
+                            value={statusFilter}
+                            onChange={(e) => {
+                                setStatusFilter(e.target.value);
+                                setCurrentPage(1);
+                            }}
+                        >
+                            <option value="ALL">ALL</option>
+                            <option value="OPEN">OPEN</option>
+                            <option value="RESOLVED">RESOLVED</option>
+                        </select>
+                    </div>
+
+                    <div className="audit-filter-group">
+                        <span className="audit-filter-label">Type:</span>
+                        <select
+                            className="audit-action-select"
                             value={typeFilter}
-                            onChange={(e) => setTypeFilter(e.target.value)}
+                            onChange={(e) => {
+                                setTypeFilter(e.target.value);
+                                setCurrentPage(1);
+                            }}
                         >
                             {errorTypes.map((t) => (
                                 <option key={t} value={t}>
@@ -155,94 +185,106 @@ export default function Errors() {
                             ))}
                         </select>
                     </div>
+
+                    <div className="rec-pagination-nav">
+                        <button
+                            type="button"
+                            className="rec-pagination-btn"
+                            disabled={currentPage === 1}
+                            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                            title="Previous Page"
+                        >
+                            <ChevronLeft size={14} />
+                            <span>Previous</span>
+                        </button>
+
+                        <div className="rec-pagination-indicator">
+                            Page <span className="rec-pagination-current">{currentPage}</span> of <span className="rec-pagination-total">{totalPages}</span>
+                        </div>
+
+                        <button
+                            type="button"
+                            className="rec-pagination-btn"
+                            disabled={currentPage >= totalPages || totalPages === 0}
+                            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                            title="Next Page"
+                        >
+                            <span>Next</span>
+                            <ChevronRight size={14} />
+                        </button>
+                    </div>
                 </div>
             </div>
 
             {/* Table */}
             <div className="content-card">
                 <div className="table-responsive-container">
-                    <table className="enterprise-data-table">
+                    <table className="enterprise-data-table errors-summary-table">
                         <thead>
                             <tr>
-                                <th className="sno-col">S.No</th>
-                                <th>Reconciliation</th>
-                                <th>Transaction</th>
-                                <th>Error</th>
-                                <th>Error Detail</th>
-                                <th>Status</th>
-                                <th>Created</th>
-                                <th className="text-center">Action</th>
+                                <th className="col-timestamp">Timestamp</th>
+                                <th className="col-user">User</th>
+                                <th className="col-rec">Reconciliation</th>
+                                <th className="col-errors">Error Count</th>
+                                <th className="col-status">Status</th>
+                                <th className="col-action text-center">Action</th>
                             </tr>
                         </thead>
                         <tbody>
                             {loading ? (
                                 <tr>
-                                    <td colSpan={8} className="table-loading-cell">
+                                    <td colSpan={6} className="table-loading-cell">
                                         Loading reconciliation exceptions...
                                     </td>
                                 </tr>
-                            ) : filtered.length === 0 ? (
+                            ) : paginatedSummaries.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} className="table-empty-cell">
+                                    <td colSpan={6} className="table-empty-cell">
                                         No errors found matching your filter criteria.
                                     </td>
                                 </tr>
                             ) : (
-                                filtered.map((err, index) => (
-                                    <tr key={err.id}>
-                                        <td className="sno-col">
-                                            {index + 1}
+                                paginatedSummaries.map((group) => (
+                                    <tr key={group.groupKey}>
+                                        <td className="col-timestamp text-xs font-mono text-slate-400 whitespace-nowrap">
+                                            {formatDate(group.latestTimestamp)}
                                         </td>
-                                        <td>
+                                        <td className="col-user whitespace-nowrap">
+                                            <div className="text-xs font-semibold text-slate-100">{group.user}</div>
+                                        </td>
+                                        <td className="col-rec">
                                             <button
                                                 type="button"
                                                 className="error-rec-name-btn"
-                                                onClick={() => navigate(`/reconciliations/${err.reconciliationId}`)}
-                                                title={`Open ${err.reconciliationName || `Reconciliation #${err.reconciliationId}`}`}
+                                                onClick={() => group.reconciliationId && navigate(`/reconciliations/${group.reconciliationId}?tab=errors`)}
+                                                title={`Open ${group.reconciliationName} errors`}
                                             >
-                                                {err.reconciliationName || `Reconciliation #${err.reconciliationId}`}
+                                                {group.reconciliationName}
                                             </button>
                                         </td>
-                                        <td className="text-xs font-medium text-slate-300">
-                                            {err.transactionInfo}
-                                        </td>
-                                        <td>
-                                            <span className="error-type-badge">
-                                                {err.errorType}
+                                        <td className="col-errors whitespace-nowrap">
+                                            <span className="audit-records-badge">
+                                                {group.totalErrors} {group.totalErrors === 1 ? "error" : "errors"}
                                             </span>
                                         </td>
-                                        <td className="text-xs text-slate-300 max-w-sm">
-                                            <div>{err.description}</div>
-                                            {err.resolutionNotes && (
-                                                <div className="resolution-note-snippet mt-1">
-                                                    <strong>Resolution:</strong> {err.resolutionNotes}
-                                                </div>
-                                            )}
-                                        </td>
-                                        <td>
-                                            <span className={`status-badge ${
-                                                err.status === "RESOLVED" ? "status-success" : "status-error"
-                                            }`}>
-                                                {err.status}
+                                        <td className="col-status whitespace-nowrap">
+                                            <span className={`status-badge ${group.openErrorsCount > 0 ? "status-error" : "status-success"}`}>
+                                                {group.openErrorsCount > 0 ? "OPEN" : "RESOLVED"}
                                             </span>
                                         </td>
-                                        <td className="text-xs text-slate-400 whitespace-nowrap">
-                                            {formatDate(err.createdAt)}
-                                        </td>
-                                        <td className="text-center">
-                                            {err.status === "OPEN" ? (
+                                        <td className="col-action text-center whitespace-nowrap">
+                                            {group.reconciliationId ? (
                                                 <button
                                                     type="button"
-                                                    className="resolve-action-btn"
-                                                    onClick={() => setResolvingError(err)}
+                                                    className="audit-view-all-btn"
+                                                    onClick={() => navigate(`/reconciliations/${group.reconciliationId}?tab=errors`)}
+                                                    title={`View all ${group.totalErrors} error records for ${group.reconciliationName}`}
                                                 >
-                                                    <CheckCircle2 size={13} />
-                                                    <span>Resolve</span>
+                                                    <Eye size={13} />
+                                                    <span>View All</span>
                                                 </button>
                                             ) : (
-                                                <span className="text-xs text-emerald-400 font-medium">
-                                                    ✓ Resolved
-                                                </span>
+                                                <span className="text-slate-500 text-xs">—</span>
                                             )}
                                         </td>
                                     </tr>
@@ -252,14 +294,6 @@ export default function Errors() {
                     </table>
                 </div>
             </div>
-
-            {/* Resolve Error Modal */}
-            <ResolveErrorModal
-                isOpen={!!resolvingError}
-                onClose={() => setResolvingError(null)}
-                error={resolvingError}
-                onConfirmResolve={handleConfirmResolve}
-            />
         </div>
     );
 }

@@ -312,16 +312,17 @@ export default function ReconciliationDetails() {
     };
 
     const branchMap = useMemo(() => {
-        const map = {
-            1: "Chennai",
-            2: "Madurai",
-            3: "Coimbatore",
-            4: "Trichy",
-            5: "Salem"
-        };
-        branches.forEach((b) => {
-            if (b.id) map[b.id] = b.name;
-            if (b.code) map[b.code] = b.name;
+        const map = {};
+        (branches || []).forEach((b) => {
+            if (b?.id) map[b.id] = b.code || b.name;
+            if (b?.code) {
+                map[b.code] = b.code;
+                map[b.code.toLowerCase()] = b.code;
+            }
+            if (b?.name) {
+                map[b.name] = b.code || b.name;
+                map[b.name.toLowerCase()] = b.code || b.name;
+            }
         });
         return map;
     }, [branches]);
@@ -437,7 +438,7 @@ export default function ReconciliationDetails() {
 
         // 5. Branch ID fields
         if (fieldName === "fromBranchId" || fieldName === "toBranchId" || fieldName === "branchId" || fieldName === "branch") {
-            const bName = branchMap[strVal] || branchMap[Number(strVal)] || `Branch #${strVal}`;
+            const bName = branchMap[strVal] || branchMap[Number(strVal)] || branchMap[strVal.toLowerCase()] || `Branch #${strVal}`;
             return <span className="audit-branch-badge">{bName}</span>;
         }
 

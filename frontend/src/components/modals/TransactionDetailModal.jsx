@@ -118,7 +118,7 @@ export default function TransactionDetailModal({ isOpen, onClose, transaction })
                                 <div className="route-branch-meta">
                                     <span className="route-branch-label">Origin Branch</span>
                                     <strong className="route-branch-name">
-                                        {transaction.fromBranchName || "Branch " + transaction.fromBranchId}
+                                        {transaction.fromBranchCode || transaction.fromBranchName || "Branch " + transaction.fromBranchId}
                                     </strong>
                                 </div>
                             </div>
@@ -138,7 +138,7 @@ export default function TransactionDetailModal({ isOpen, onClose, transaction })
                                 <div className="route-branch-meta">
                                     <span className="route-branch-label">Destination Branch</span>
                                     <strong className="route-branch-name">
-                                        {transaction.toBranchName || "Branch " + transaction.toBranchId}
+                                        {transaction.toBranchCode || transaction.toBranchName || "Branch " + transaction.toBranchId}
                                     </strong>
                                 </div>
                             </div>
@@ -201,7 +201,7 @@ export default function TransactionDetailModal({ isOpen, onClose, transaction })
                                     <div className="comparison-item">
                                         <span className="comparison-item-label">Route Flow:</span>
                                         <span className="comparison-item-val text-slate-200">
-                                            {transaction.fromBranchName} → {transaction.toBranchName}
+                                            {transaction.fromBranchCode || transaction.fromBranchName} → {transaction.toBranchCode || transaction.toBranchName}
                                         </span>
                                     </div>
 

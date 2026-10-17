@@ -28,6 +28,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 @Service
 @Transactional
@@ -80,19 +81,14 @@ public class TransactionServiceImpl implements TransactionService {
                                 + request.getReconciliationId()
                 ));
 
-        Branch fromBranch = branchRepository
-                .findById(request.getFromBranchId())
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "From Branch not found with ID: "
-                                + request.getFromBranchId()
-                ));
+        String sheetLabel = request.getSourceSheet() != null ? (request.getSourceSheet().equals("M_IN") ? "M In" : "M Out") : "";
+        String rowLabel = request.getSourceRow() != null ? "Row " + request.getSourceRow() : "";
+        String context = (!sheetLabel.isEmpty() || !rowLabel.isEmpty())
+                ? "[" + (sheetLabel + " " + rowLabel).trim() + "] "
+                : "";
 
-        Branch toBranch = branchRepository
-                .findById(request.getToBranchId())
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "To Branch not found with ID: "
-                                + request.getToBranchId()
-                ));
+        Branch fromBranch = resolveBranch(request.getFromBranchId(), request.getFromBranchName(), "From", context);
+        Branch toBranch = resolveBranch(request.getToBranchId(), request.getToBranchName(), "To", context);
 
         LocalDateTime now = LocalDateTime.now();
 
@@ -240,19 +236,14 @@ public class TransactionServiceImpl implements TransactionService {
                         "Transaction not found with ID: " + transactionId
                 ));
 
-        Branch fromBranch = branchRepository
-                .findById(request.getFromBranchId())
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "From Branch not found with ID: "
-                                + request.getFromBranchId()
-                ));
+        String sheetLabel = transaction.getSourceSheet() != null ? (transaction.getSourceSheet().equals("M_IN") ? "M In" : "M Out") : "";
+        String rowLabel = transaction.getSourceRow() != null ? "Row " + transaction.getSourceRow() : "";
+        String context = (!sheetLabel.isEmpty() || !rowLabel.isEmpty())
+                ? "[" + (sheetLabel + " " + rowLabel).trim() + "] "
+                : "";
 
-        Branch toBranch = branchRepository
-                .findById(request.getToBranchId())
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "To Branch not found with ID: "
-                                + request.getToBranchId()
-                ));
+        Branch fromBranch = resolveBranch(request.getFromBranchId(), request.getFromBranchName(), "From", context);
+        Branch toBranch = resolveBranch(request.getToBranchId(), request.getToBranchName(), "To", context);
 
         // Capture old values before updating the transaction
         Long oldFromBranchId = transaction.getFromBranch().getId();
@@ -405,12 +396,18 @@ public class TransactionServiceImpl implements TransactionService {
         response.setFromBranchId(
                 transaction.getFromBranch().getId()
         );
+        response.setFromBranchCode(
+                transaction.getFromBranch().getCode()
+        );
         response.setFromBranchName(
                 transaction.getFromBranch().getName()
         );
 
         response.setToBranchId(
                 transaction.getToBranch().getId()
+        );
+        response.setToBranchCode(
+                transaction.getToBranch().getCode()
         );
         response.setToBranchName(
                 transaction.getToBranch().getName()
@@ -502,5 +499,44 @@ public class TransactionServiceImpl implements TransactionService {
         // 3. Delete transactions
         transactionRepository.deleteAllById(validIds);
         transactionRepository.flush();
+    }
+
+    private Branch resolveBranch(Long branchId, String branchName, String direction, String context) {
+        if (branchName != null && !branchName.trim().isEmpty()) {
+            String clean = branchName.trim();
+            Optional<Branch> byName = branchRepository.findByNameIgnoreCase(clean);
+            if (byName.isPresent()) {
+                Branch b = byName.get();
+                if (!Boolean.TRUE.equals(b.getActive())) {
+                    throw new IllegalArgumentException(context + direction + " Branch '" + clean + "' is inactive.");
+                }
+                return b;
+            }
+            Optional<Branch> byCode = branchRepository.findByCodeIgnoreCase(clean);
+            if (byCode.isPresent()) {
+                Branch b = byCode.get();
+                if (!Boolean.TRUE.equals(b.getActive())) {
+                    throw new IllegalArgumentException(context + direction + " Branch '" + clean + "' is inactive.");
+                }
+                return b;
+            }
+
+            throw new IllegalArgumentException(
+                    context + direction + " Branch '" + clean + "' does not exist in the database. Only registered branches are allowed."
+            );
+        }
+
+        if (branchId != null && branchId > 0) {
+            Branch b = branchRepository.findById(branchId)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            context + direction + " Branch not found with ID: " + branchId + ". Only registered branches are allowed."
+                    ));
+            if (!Boolean.TRUE.equals(b.getActive())) {
+                throw new IllegalArgumentException(context + direction + " Branch '" + b.getName() + "' is inactive.");
+            }
+            return b;
+        }
+
+        throw new IllegalArgumentException(context + direction + " Branch is required");
     }
 }

@@ -16,6 +16,7 @@ import {
     LogOut,
     ChevronRight
 } from "lucide-react";
+import ErrorBoundary from "../common/ErrorBoundary";
 
 export default function AppLayout() {
     const location = useLocation();
@@ -162,7 +163,9 @@ export default function AppLayout() {
 
                 {/* Main Dynamic View Outlet */}
                 <main className="app-main-content">
-                    <Outlet />
+                    <ErrorBoundary key={location.pathname}>
+                        <Outlet />
+                    </ErrorBoundary>
                 </main>
             </div>
 

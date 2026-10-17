@@ -12,52 +12,43 @@ export function formatFileSize(bytes) {
 }
 
 /**
- * Resolves raw text or number to a branch from active branch list
+ * Dynamically resolves raw text or number to a branch from active branch list
+ * or extracts the exact branch name directly from the Excel cell.
  */
-/**
- * Resolves raw text or number to a branch from active branch list
- */
-function resolveBranch(rawVal, branches = [], fallbackDefault = null) {
-    if (rawVal === undefined || rawVal === null || rawVal === "") {
-        return fallbackDefault || { id: 1, name: "Chennai", code: "CHN" };
+export function resolveBranch(rawVal, branches = []) {
+    if (rawVal === undefined || rawVal === null || String(rawVal).trim() === "") {
+        return { id: null, name: "Unknown", code: "UNK", isValid: false, isUnknown: true };
     }
 
-    const str = String(rawVal).trim().toLowerCase();
+    const trimmed = String(rawVal).trim();
+    const strLower = trimmed.toLowerCase();
     const num = Number(rawVal);
 
-    // 1. Match by numeric ID
+    // 1. Match by numeric ID against existing active branches
     if (!isNaN(num) && num > 0) {
         const byId = branches.find((b) => Number(b.id) === num);
-        if (byId) return byId;
+        if (byId) return { id: byId.id, name: byId.code || byId.name, code: byId.code, fullName: byId.name, isValid: true, isUnknown: false };
     }
 
-    // 2. Exact match by code or name
+    // 2. Exact match by code or name against existing branches (case-insensitive)
     const exact = branches.find(
-        (b) => b.code.toLowerCase() === str || b.name.toLowerCase() === str
+        (b) => (b.name && b.name.trim().toLowerCase() === strLower) ||
+               (b.code && b.code.trim().toLowerCase() === strLower)
     );
-    if (exact) return exact;
-
-    // 3. Fuzzy / Partial match
-    const partial = branches.find(
-        (b) => str.includes(b.name.toLowerCase()) || b.name.toLowerCase().includes(str) ||
-               str.includes(b.code.toLowerCase()) || b.code.toLowerCase().includes(str)
-    );
-    if (partial) return partial;
-
-    // 4. Known Tamil Nadu hub mappings
-    const staticMap = {
-        chennai: 1, chn: 1,
-        madurai: 2, mdu: 2,
-        coimbatore: 3, cbe: 3,
-        trichy: 4, try: 4,
-        salem: 5, sle: 5
-    };
-    if (staticMap[str]) {
-        const found = branches.find((b) => Number(b.id) === staticMap[str]);
-        if (found) return found;
+    if (exact) {
+        return { id: exact.id, name: exact.code || exact.name, code: exact.code, fullName: exact.name, isValid: true, isUnknown: false };
     }
 
-    return fallbackDefault || { id: 1, name: String(rawVal).trim() || "Chennai", code: "CHN" };
+    // 3. Not found in database branches: Mark as invalid / unknown
+    const cleanCode = trimmed.toUpperCase().replace(/[^A-Z0-9_]/g, "").slice(0, 10) || trimmed.slice(0, 10).toUpperCase();
+
+    return {
+        id: null,
+        name: trimmed,
+        code: cleanCode,
+        isValid: false,
+        isUnknown: true
+    };
 }
 
 /**
@@ -159,7 +150,7 @@ function detectColumns(headers = [], isMIn = true) {
  */
 function parseSheetRows(worksheet, sheetType, branches, reconciliationId) {
     const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
-    if (!rawData || rawData.length === 0) return { rows: [], warnings: 0 };
+    if (!rawData || rawData.length === 0) return { rows: [], warnings: 0, invalidBranchErrors: [] };
 
     // Find header row or first data row
     let headerRowIdx = -1;
@@ -178,6 +169,7 @@ function parseSheetRows(worksheet, sheetType, branches, reconciliationId) {
 
     const parsed = [];
     let warnings = 0;
+    const invalidBranchErrors = [];
 
     for (let r = startRow; r < rawData.length; r++) {
         const row = rawData[r];
@@ -202,24 +194,50 @@ function parseSheetRows(worksheet, sheetType, branches, reconciliationId) {
         let toBranch;
 
         if (isMIn) {
-            // M In: Col 1 in UI is BRANCH (destination receiving money), Col 2 in UI is From BRANCH (source)
-            toBranch = resolveBranch(rawBranch1, branches, { id: 1, name: "Chennai", code: "CHN" });
-            fromBranch = resolveBranch(rawBranch2, branches, { id: 5, name: "Salem", code: "SLE" });
+            // M In: Col 1 in UI is BRANCH (destination receiving money), Col 2 in UI is From BRANCH (source origin)
+            toBranch = resolveBranch(rawBranch1, branches);
+            fromBranch = resolveBranch(rawBranch2, branches);
         } else {
-            // M Out: Col 1 in UI is BRANCH (source sending money), Col 2 in UI is To BRANCH (destination)
-            fromBranch = resolveBranch(rawBranch1, branches, { id: 1, name: "Chennai", code: "CHN" });
-            toBranch = resolveBranch(rawBranch2, branches, { id: 3, name: "Coimbatore", code: "CBE" });
+            // M Out: Col 1 in UI is BRANCH (source origin sending money), Col 2 in UI is To BRANCH (destination)
+            fromBranch = resolveBranch(rawBranch1, branches);
+            toBranch = resolveBranch(rawBranch2, branches);
+        }
+
+        const displaySheetName = isMIn ? "M In" : "M Out";
+        const excelRowNum = r + 1;
+
+        if (!fromBranch.isValid) {
+            invalidBranchErrors.push({
+                sheet: displaySheetName,
+                row: excelRowNum,
+                direction: "From Branch",
+                branchName: fromBranch.name,
+                message: `[${displaySheetName} Row ${excelRowNum}] From Branch '${fromBranch.name}' does not exist in the database.`
+            });
+        }
+        if (!toBranch.isValid) {
+            invalidBranchErrors.push({
+                sheet: displaySheetName,
+                row: excelRowNum,
+                direction: "To Branch",
+                branchName: toBranch.name,
+                message: `[${displaySheetName} Row ${excelRowNum}] To Branch '${toBranch.name}' does not exist in the database.`
+            });
         }
 
         parsed.push({
             id: `temp-${sheetType}-${parsed.length + 1}-${Date.now()}`,
             reconciliationId: Number(reconciliationId),
             sourceSheet: sheetType,
-            sourceRow: parsed.length + 1,
+            sourceRow: excelRowNum,
             fromBranchId: fromBranch.id,
-            fromBranchName: fromBranch.name,
+            fromBranchName: fromBranch.code || fromBranch.name,
+            fromBranchCode: fromBranch.code,
+            fromBranchValid: fromBranch.isValid,
             toBranchId: toBranch.id,
-            toBranchName: toBranch.name,
+            toBranchName: toBranch.code || toBranch.name,
+            toBranchCode: toBranch.code,
+            toBranchValid: toBranch.isValid,
             amount: amount,
             commission: commission,
             status: "PENDING",
@@ -229,7 +247,7 @@ function parseSheetRows(worksheet, sheetType, branches, reconciliationId) {
         });
     }
 
-    return { rows: parsed, warnings };
+    return { rows: parsed, warnings, invalidBranchErrors };
 }
 
 /**
@@ -293,6 +311,7 @@ export async function parseExcelWorkbook(file, branches = [], reconciliationId =
     let mInTransactions;
     let mOutTransactions;
     let totalWarnings;
+    let invalidBranchErrors = [];
 
     if (mInSheetName && mOutSheetName) {
         const inRes = parseSheetRows(workbook.Sheets[mInSheetName], "M_IN", branches, reconciliationId);
@@ -300,6 +319,7 @@ export async function parseExcelWorkbook(file, branches = [], reconciliationId =
         mInTransactions = inRes.rows;
         mOutTransactions = outRes.rows;
         totalWarnings = inRes.warnings + outRes.warnings;
+        invalidBranchErrors = [...inRes.invalidBranchErrors, ...outRes.invalidBranchErrors];
     } else if (sheetNames.length >= 2) {
         // Fallback: first sheet M_IN, second sheet M_OUT
         const inRes = parseSheetRows(workbook.Sheets[sheetNames[0]], "M_IN", branches, reconciliationId);
@@ -307,6 +327,7 @@ export async function parseExcelWorkbook(file, branches = [], reconciliationId =
         mInTransactions = inRes.rows;
         mOutTransactions = outRes.rows;
         totalWarnings = inRes.warnings + outRes.warnings;
+        invalidBranchErrors = [...inRes.invalidBranchErrors, ...outRes.invalidBranchErrors];
     } else {
         // Single sheet (e.g., CSV or single workbook sheet)
         const singleSheet = workbook.Sheets[sheetNames[0]];
@@ -336,12 +357,14 @@ export async function parseExcelWorkbook(file, branches = [], reconciliationId =
             mInTransactions = inList;
             mOutTransactions = outList;
             totalWarnings = fullRes.warnings;
+            invalidBranchErrors = fullRes.invalidBranchErrors;
         } else {
             // Default single sheet to M_IN
             const inRes = parseSheetRows(singleSheet, "M_IN", branches, reconciliationId);
             mInTransactions = inRes.rows;
             mOutTransactions = [];
             totalWarnings = inRes.warnings;
+            invalidBranchErrors = inRes.invalidBranchErrors;
         }
     }
 
@@ -353,15 +376,18 @@ export async function parseExcelWorkbook(file, branches = [], reconciliationId =
         );
     }
 
+    const validTxns = allTxns.filter((t) => t.fromBranchValid && t.toBranchValid);
+
     return {
         fileName: file.name,
         fileSize: formatFileSize(file.size),
         totalRows: allTxns.length,
         mInCount: mInTransactions.length,
         mOutCount: mOutTransactions.length,
-        validCount: allTxns.length,
+        validCount: validTxns.length,
         warningCount: totalWarnings,
-        errorCount: 0,
+        errorCount: invalidBranchErrors.length,
+        invalidBranchErrors: invalidBranchErrors,
         transactions: allTxns,
         sampleMIns: mInTransactions.slice(0, 4),
         sampleMOuts: mOutTransactions.slice(0, 4)

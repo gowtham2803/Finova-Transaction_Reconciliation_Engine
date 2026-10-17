@@ -3,9 +3,7 @@ package com.company.reconciliation.branch.controller;
 import com.company.reconciliation.branch.dto.BranchResponse;
 import com.company.reconciliation.branch.service.BranchService;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -25,6 +23,17 @@ public class BranchController {
 
         List<BranchResponse> branches =
                 branchService.getActiveBranches();
+
+        return ResponseEntity.ok(branches);
+    }
+
+    // Validate that branches exist in database
+    @PostMapping("/ensure")
+    public ResponseEntity<List<BranchResponse>> ensureBranches(
+            @RequestBody List<String> branchNames) {
+
+        List<BranchResponse> branches =
+                branchService.ensureBranches(branchNames);
 
         return ResponseEntity.ok(branches);
     }

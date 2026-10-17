@@ -174,6 +174,28 @@ export async function getBranches() {
 }
 
 /**
+ * 1b. ENSURE BRANCHES: Register or verify dynamic branch names from Excel
+ */
+export async function ensureBranches(branchNames) {
+    if (!branchNames || !Array.isArray(branchNames) || branchNames.length === 0) {
+        return getBranches();
+    }
+    const cleanNames = Array.from(new Set(
+        branchNames
+            .map((n) => (n !== null && n !== undefined ? String(n).trim() : ""))
+            .filter((n) => n.length > 0 && n !== "Unknown")
+    ));
+    if (cleanNames.length === 0) {
+        return getBranches();
+    }
+    const branches = await request("/branches/ensure", {
+        method: "POST",
+        body: JSON.stringify(cleanNames)
+    });
+    return Array.isArray(branches) ? branches : getBranches();
+}
+
+/**
  * Helper to enrich a backend reconciliation record with metrics and metadata
  */
 async function enrichReconciliation(rec) {
@@ -341,12 +363,20 @@ export async function deleteReconciliation(reconciliationId) {
  */
 export async function getTransactionsByReconciliation(reconciliationId) {
     const id = Number(reconciliationId);
-    const [txns, results] = await Promise.all([
+    const [txns, results, branches] = await Promise.all([
         request(`/transactions/reconciliation/${id}`),
-        request(`/reconciliations/${id}/results`).catch(() => [])
+        request(`/reconciliations/${id}/results`).catch(() => []),
+        getBranches().catch(() => [])
     ]);
 
     if (!Array.isArray(txns)) return [];
+
+    const branchCodeMap = new Map();
+    (branches || []).forEach((b) => {
+        if (b.id) branchCodeMap.set(String(b.id), b.code || b.name);
+        if (b.name) branchCodeMap.set(b.name.trim().toLowerCase(), b.code || b.name);
+        if (b.code) branchCodeMap.set(b.code.trim().toLowerCase(), b.code);
+    });
 
     const mInResultMap = new Map();
     const mOutResultMap = new Map();
@@ -388,19 +418,41 @@ export async function getTransactionsByReconciliation(reconciliationId) {
 
         const counterpart = matchedTransactionId ? txnMap.get(Number(matchedTransactionId)) : null;
         if (counterpart) {
+            const counterpartFromCode = counterpart.fromBranchCode ||
+                branchCodeMap.get(String(counterpart.fromBranchId)) ||
+                branchCodeMap.get(counterpart.fromBranchName?.trim().toLowerCase()) ||
+                counterpart.fromBranchName;
+            const counterpartToCode = counterpart.toBranchCode ||
+                branchCodeMap.get(String(counterpart.toBranchId)) ||
+                branchCodeMap.get(counterpart.toBranchName?.trim().toLowerCase()) ||
+                counterpart.toBranchName;
+
             matchDetails = {
                 counterpartId: counterpart.id,
                 counterpartSheet: counterpart.sourceSheet,
-                counterpartFrom: counterpart.fromBranchName,
-                counterpartTo: counterpart.toBranchName,
+                counterpartFrom: counterpartFromCode,
+                counterpartTo: counterpartToCode,
                 counterpartAmount: counterpart.amount,
                 counterpartCommission: counterpart.commission,
                 notes: errorReason || (status === "MATCHED" ? "Exact match." : "")
             };
         }
 
+        const fromCode = txn.fromBranchCode ||
+            branchCodeMap.get(String(txn.fromBranchId)) ||
+            branchCodeMap.get(txn.fromBranchName?.trim().toLowerCase()) ||
+            txn.fromBranchName;
+        const toCode = txn.toBranchCode ||
+            branchCodeMap.get(String(txn.toBranchId)) ||
+            branchCodeMap.get(txn.toBranchName?.trim().toLowerCase()) ||
+            txn.toBranchName;
+
         return {
             ...txn,
+            fromBranchName: fromCode,
+            toBranchName: toCode,
+            fromBranchCode: fromCode,
+            toBranchCode: toCode,
             status,
             matchedTransactionId,
             matchDetails,
@@ -432,18 +484,56 @@ export async function saveTransactions(reconciliationId, { newRows = [], updated
         deletedCount = validDeletedIds.length;
     }
 
-    // Filter and format new rows
+    // Load registered database branches as single source of truth
+    const activeBranches = await getBranches();
+    const branchMap = new Map();
+    activeBranches.forEach((b) => {
+        if (b.name) branchMap.set(b.name.trim().toLowerCase(), b);
+        if (b.code) branchMap.set(b.code.trim().toLowerCase(), b);
+        if (b.id) branchMap.set(String(b.id), b);
+    });
+
+    // Filter, validate, and format new rows
     const validNewRows = (newRows || [])
-        .filter((r) => r && r.fromBranchId && r.toBranchId && Number(r.amount) > 0)
-        .map((r, idx) => ({
-            reconciliationId: recId,
-            sourceSheet: r.sourceSheet || "M_IN",
-            sourceRow: Number(r.sourceRow) || idx + 1,
-            fromBranchId: Number(r.fromBranchId),
-            toBranchId: Number(r.toBranchId),
-            amount: Number(r.amount),
-            commission: Number(r.commission) || 0
-        }));
+        .filter((r) => r && (r.fromBranchId || r.fromBranchName) && (r.toBranchId || r.toBranchName) && Number(r.amount) > 0)
+        .map((r, idx) => {
+            const sheetLabel = r.sourceSheet === "M_IN" ? "M In" : "M Out";
+            const rowNum = Number(r.sourceRow) || idx + 1;
+
+            let fromB = null;
+            if (r.fromBranchId && branchMap.has(String(r.fromBranchId))) {
+                fromB = branchMap.get(String(r.fromBranchId));
+            } else if (r.fromBranchName && branchMap.has(r.fromBranchName.trim().toLowerCase())) {
+                fromB = branchMap.get(r.fromBranchName.trim().toLowerCase());
+            }
+
+            if (!fromB) {
+                throw new Error(`[${sheetLabel} Row ${rowNum}] From Branch '${r.fromBranchName || r.fromBranchId}' does not exist in the database. Only registered branches are allowed.`);
+            }
+
+            let toB = null;
+            if (r.toBranchId && branchMap.has(String(r.toBranchId))) {
+                toB = branchMap.get(String(r.toBranchId));
+            } else if (r.toBranchName && branchMap.has(r.toBranchName.trim().toLowerCase())) {
+                toB = branchMap.get(r.toBranchName.trim().toLowerCase());
+            }
+
+            if (!toB) {
+                throw new Error(`[${sheetLabel} Row ${rowNum}] To Branch '${r.toBranchName || r.toBranchId}' does not exist in the database. Only registered branches are allowed.`);
+            }
+
+            return {
+                reconciliationId: recId,
+                sourceSheet: r.sourceSheet || "M_IN",
+                sourceRow: rowNum,
+                fromBranchId: fromB.id,
+                fromBranchName: fromB.name,
+                toBranchId: toB.id,
+                toBranchName: toB.name,
+                amount: Number(r.amount),
+                commission: Number(r.commission) || 0
+            };
+        });
 
     if (validNewRows.length > 0) {
         const createdResponses = await request("/transactions/bulk", {
@@ -453,15 +543,43 @@ export async function saveTransactions(reconciliationId, { newRows = [], updated
         createdCount = Array.isArray(createdResponses) ? createdResponses.length : validNewRows.length;
     }
 
-    // Process updated rows
+    // Process updated rows with strict branch validation
     if (updatedRows && updatedRows.length > 0) {
         for (const row of updatedRows) {
             if (!row.id || String(row.id).startsWith("temp-")) continue;
+
+            const sheetLabel = row.sourceSheet === "M_IN" ? "M In" : "M Out";
+            const rowNum = Number(row.sourceRow) || 1;
+
+            let fromB = null;
+            if (row.fromBranchId && branchMap.has(String(row.fromBranchId))) {
+                fromB = branchMap.get(String(row.fromBranchId));
+            } else if (row.fromBranchName && branchMap.has(row.fromBranchName.trim().toLowerCase())) {
+                fromB = branchMap.get(row.fromBranchName.trim().toLowerCase());
+            }
+
+            if (!fromB) {
+                throw new Error(`[${sheetLabel} Row ${rowNum}] From Branch '${row.fromBranchName || row.fromBranchId}' does not exist in the database. Only registered branches are allowed.`);
+            }
+
+            let toB = null;
+            if (row.toBranchId && branchMap.has(String(row.toBranchId))) {
+                toB = branchMap.get(String(row.toBranchId));
+            } else if (row.toBranchName && branchMap.has(row.toBranchName.trim().toLowerCase())) {
+                toB = branchMap.get(row.toBranchName.trim().toLowerCase());
+            }
+
+            if (!toB) {
+                throw new Error(`[${sheetLabel} Row ${rowNum}] To Branch '${row.toBranchName || row.toBranchId}' does not exist in the database. Only registered branches are allowed.`);
+            }
+
             await request(`/transactions/${row.id}`, {
                 method: "PUT",
                 body: JSON.stringify({
-                    fromBranchId: Number(row.fromBranchId),
-                    toBranchId: Number(row.toBranchId),
+                    fromBranchId: fromB.id,
+                    fromBranchName: fromB.name,
+                    toBranchId: toB.id,
+                    toBranchName: toB.name,
                     amount: Number(row.amount),
                     commission: Number(row.commission) || 0
                 })
@@ -499,17 +617,56 @@ export async function deleteTransactions(transactionIds) {
  */
 export async function importTransactions(reconciliationId, importedTransactions) {
     const recId = Number(reconciliationId);
+
+    // 1. Single source of truth: Load registered branches directly from database
+    const activeBranches = await getBranches();
+    const branchMap = new Map();
+    activeBranches.forEach((b) => {
+        if (b.name) branchMap.set(b.name.trim().toLowerCase(), b);
+        if (b.code) branchMap.set(b.code.trim().toLowerCase(), b);
+        if (b.id) branchMap.set(String(b.id), b);
+    });
+
     const formatted = (importedTransactions || [])
         .filter((t) => t && Number(t.amount) > 0)
-        .map((t, index) => ({
-            reconciliationId: recId,
-            sourceSheet: t.sourceSheet,
-            sourceRow: t.sourceRow !== undefined && t.sourceRow !== null ? Number(t.sourceRow) : (index + 1),
-            fromBranchId: Number(t.fromBranchId),
-            toBranchId: Number(t.toBranchId),
-            amount: Number(t.amount),
-            commission: Number(t.commission) || 0
-        }));
+        .map((t, index) => {
+            const sheetLabel = t.sourceSheet === "M_IN" ? "M In" : "M Out";
+            const rowNum = t.sourceRow !== undefined && t.sourceRow !== null ? Number(t.sourceRow) : (index + 1);
+
+            let fromB = null;
+            if (t.fromBranchId && branchMap.has(String(t.fromBranchId))) {
+                fromB = branchMap.get(String(t.fromBranchId));
+            } else if (t.fromBranchName && branchMap.has(t.fromBranchName.trim().toLowerCase())) {
+                fromB = branchMap.get(t.fromBranchName.trim().toLowerCase());
+            }
+
+            if (!fromB) {
+                throw new Error(`[${sheetLabel} Row ${rowNum}] From Branch '${t.fromBranchName || t.fromBranchId}' does not exist in the database. Only registered branches are allowed.`);
+            }
+
+            let toB = null;
+            if (t.toBranchId && branchMap.has(String(t.toBranchId))) {
+                toB = branchMap.get(String(t.toBranchId));
+            } else if (t.toBranchName && branchMap.has(t.toBranchName.trim().toLowerCase())) {
+                toB = branchMap.get(t.toBranchName.trim().toLowerCase());
+            }
+
+            if (!toB) {
+                throw new Error(`[${sheetLabel} Row ${rowNum}] To Branch '${t.toBranchName || t.toBranchId}' does not exist in the database. Only registered branches are allowed.`);
+            }
+
+            return {
+                reconciliationId: recId,
+                sourceSheet: t.sourceSheet,
+                sourceRow: rowNum,
+                fromBranchId: fromB.id,
+                fromBranchName: fromB.name,
+                toBranchId: toB.id,
+                toBranchName: toB.name,
+                amount: Number(t.amount),
+                commission: Number(t.commission) || 0
+            };
+        });
 
     if (formatted.length === 0) return [];
 
@@ -551,12 +708,20 @@ export async function runReconciliation(reconciliationId) {
  */
 export async function getReconciliationResults(reconciliationId) {
     const recId = Number(reconciliationId);
-    const [results, txns] = await Promise.all([
+    const [results, txns, branches] = await Promise.all([
         request(`/reconciliations/${recId}/results`).catch(() => []),
-        request(`/transactions/reconciliation/${recId}`).catch(() => [])
+        request(`/transactions/reconciliation/${recId}`).catch(() => []),
+        getBranches().catch(() => [])
     ]);
 
     if (!Array.isArray(results)) return [];
+
+    const branchCodeMap = new Map();
+    (branches || []).forEach((b) => {
+        if (b.id) branchCodeMap.set(String(b.id), b.code || b.name);
+        if (b.name) branchCodeMap.set(b.name.trim().toLowerCase(), b.code || b.name);
+        if (b.code) branchCodeMap.set(b.code.trim().toLowerCase(), b.code);
+    });
 
     const txnMap = new Map();
     (txns || []).forEach((t) => txnMap.set(Number(t.id), t));
@@ -590,8 +755,19 @@ export async function getReconciliationResults(reconciliationId) {
         const mIn = r.mInTransactionId ? txnMap.get(Number(r.mInTransactionId)) : null;
         const mOut = r.mOutTransactionId ? txnMap.get(Number(r.mOutTransactionId)) : null;
 
-        const fromName = mIn?.fromBranchName || mOut?.fromBranchName || "—";
-        const toName = mIn?.toBranchName || mOut?.toBranchName || "—";
+        const rawFromName = mIn?.fromBranchName || mOut?.fromBranchName || "—";
+        const rawToName = mIn?.toBranchName || mOut?.toBranchName || "—";
+
+        const fromCode = mIn?.fromBranchCode || mOut?.fromBranchCode ||
+            branchCodeMap.get(String(mIn?.fromBranchId || mOut?.fromBranchId)) ||
+            branchCodeMap.get(rawFromName.trim().toLowerCase()) ||
+            rawFromName;
+
+        const toCode = mIn?.toBranchCode || mOut?.toBranchCode ||
+            branchCodeMap.get(String(mIn?.toBranchId || mOut?.toBranchId)) ||
+            branchCodeMap.get(rawToName.trim().toLowerCase()) ||
+            rawToName;
+
         const amount = mIn?.amount ?? mOut?.amount ?? 0;
         const mInComm = mIn?.commission ?? 0;
         const mOutComm = mOut?.commission ?? 0;
@@ -604,7 +780,9 @@ export async function getReconciliationResults(reconciliationId) {
         return {
             ...r,
             matchStatus: status,
-            sourceDescription: `${fromName} → ${toName}`,
+            fromBranchCode: fromCode,
+            toBranchCode: toCode,
+            sourceDescription: `${fromCode} → ${toCode}`,
             amount,
             mInCommission: mInComm,
             mOutCommission: mOutComm
@@ -621,13 +799,21 @@ export async function getReconciliationErrors(reconciliationId, status = null) {
         ? `/reconciliations/${recId}/errors?status=${encodeURIComponent(status)}`
         : `/reconciliations/${recId}/errors`;
 
-    const [errors, txns, results] = await Promise.all([
+    const [errors, txns, results, branches] = await Promise.all([
         request(url).catch(() => []),
         request(`/transactions/reconciliation/${recId}`).catch(() => []),
-        request(`/reconciliations/${recId}/results`).catch(() => [])
+        request(`/reconciliations/${recId}/results`).catch(() => []),
+        getBranches().catch(() => [])
     ]);
 
     if (!Array.isArray(errors)) return [];
+
+    const branchCodeMap = new Map();
+    (branches || []).forEach((b) => {
+        if (b.id) branchCodeMap.set(String(b.id), b.code || b.name);
+        if (b.name) branchCodeMap.set(b.name.trim().toLowerCase(), b.code || b.name);
+        if (b.code) branchCodeMap.set(b.code.trim().toLowerCase(), b.code);
+    });
 
     const recMeta = getStoredMeta(recId);
     const txnMap = new Map();
@@ -640,13 +826,32 @@ export async function getReconciliationErrors(reconciliationId, status = null) {
         const mIn = result?.mInTransactionId ? txnMap.get(Number(result.mInTransactionId)) : null;
         const mOut = result?.mOutTransactionId ? txnMap.get(Number(result.mOutTransactionId)) : null;
 
+        const resolveCode = (txn, type) => {
+            if (!txn) return "—";
+            const isFrom = type === "from";
+            const code = isFrom ? txn.fromBranchCode : txn.toBranchCode;
+            const id = isFrom ? txn.fromBranchId : txn.toBranchId;
+            const name = isFrom ? txn.fromBranchName : txn.toBranchName;
+            return code ||
+                branchCodeMap.get(String(id)) ||
+                branchCodeMap.get(name?.trim().toLowerCase()) ||
+                name ||
+                "—";
+        };
+
         let transactionInfo = "—";
         if (mIn && mOut) {
-            transactionInfo = `${mIn.fromBranchName} → ${mIn.toBranchName} (M_IN: ₹${Number(mIn.amount).toLocaleString("en-IN")}, M_OUT: ₹${Number(mOut.amount).toLocaleString("en-IN")})`;
+            const fromCode = resolveCode(mIn, "from");
+            const toCode = resolveCode(mIn, "to");
+            transactionInfo = `${fromCode} → ${toCode} (M_IN: ₹${Number(mIn.amount).toLocaleString("en-IN")}, M_OUT: ₹${Number(mOut.amount).toLocaleString("en-IN")})`;
         } else if (mIn) {
-            transactionInfo = `${mIn.fromBranchName} → ${mIn.toBranchName} (M_IN: ₹${Number(mIn.amount).toLocaleString("en-IN")})`;
+            const fromCode = resolveCode(mIn, "from");
+            const toCode = resolveCode(mIn, "to");
+            transactionInfo = `${fromCode} → ${toCode} (M_IN: ₹${Number(mIn.amount).toLocaleString("en-IN")})`;
         } else if (mOut) {
-            transactionInfo = `${mOut.fromBranchName} → ${mOut.toBranchName} (M_OUT: ₹${Number(mOut.amount).toLocaleString("en-IN")})`;
+            const fromCode = resolveCode(mOut, "from");
+            const toCode = resolveCode(mOut, "to");
+            transactionInfo = `${fromCode} → ${toCode} (M_OUT: ₹${Number(mOut.amount).toLocaleString("en-IN")})`;
         }
 
         const mInRow = mIn?.sourceRow ?? null;
@@ -733,6 +938,88 @@ export async function getAllErrors(filter = {}) {
                 String(err.id).toLowerCase().includes(q) ||
                 err.reconciliationName?.toLowerCase().includes(q) ||
                 err.transactionInfo?.toLowerCase().includes(q)
+            );
+        }
+        return true;
+    });
+}
+
+/**
+ * 11b. ERROR SUMMARIES: Retrieve summary records grouped by reconciliation, mirroring Audit History
+ */
+export async function getErrorSummaries(filter = {}) {
+    const recs = await request("/reconciliations").catch(() => []);
+    if (!Array.isArray(recs)) return [];
+
+    const authUser = getActiveAuthUser();
+    const defaultUsername = authUser?.username || "local-user";
+
+    const errorPromises = recs.map(async (rec) => {
+        const recId = Number(rec.id);
+        const meta = getStoredMeta(recId);
+        const recName = meta?.reconciliationName || rec.reconciliationName || (rec.reconciliationCode ? `Reconciliation (${rec.reconciliationCode})` : `Reconciliation #${recId}`);
+        const user = rec.createdByUsername || defaultUsername;
+
+        const errors = await getReconciliationErrors(recId).catch(() => []);
+        if (!Array.isArray(errors) || errors.length === 0) {
+            return null;
+        }
+
+        const openErrors = errors.filter((e) => e.status === "OPEN");
+        const resolvedErrors = errors.filter((e) => e.status === "RESOLVED");
+
+        const sortedErrors = [...errors].sort((a, b) => {
+            const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            if (timeB !== timeA) return timeB - timeA;
+            return Number(b.id) - Number(a.id);
+        });
+
+        const latest = sortedErrors[0];
+
+        return {
+            groupKey: `rec_${recId}`,
+            reconciliationId: recId,
+            reconciliationCode: rec.reconciliationCode,
+            reconciliationName: recName,
+            user: user,
+            totalErrors: errors.length,
+            openErrorsCount: openErrors.length,
+            resolvedErrorsCount: resolvedErrors.length,
+            latestTimestamp: latest?.createdAt || rec.updatedAt || rec.createdAt,
+            latestErrorType: latest?.errorType || "ERROR",
+            latestDescription: latest?.description || "Reconciliation discrepancy identified",
+            latestTransactionInfo: latest?.transactionInfo || "—",
+            status: openErrors.length > 0 ? "OPEN" : "RESOLVED"
+        };
+    });
+
+    const groups = (await Promise.all(errorPromises)).filter(Boolean);
+
+    // Default order: newest first
+    const sorted = groups.sort((a, b) => {
+        const timeA = a.latestTimestamp ? new Date(a.latestTimestamp).getTime() : 0;
+        const timeB = b.latestTimestamp ? new Date(b.latestTimestamp).getTime() : 0;
+        if (timeB !== timeA) return timeB - timeA;
+        return (Number(b.reconciliationId) || 0) - (Number(a.reconciliationId) || 0);
+    });
+
+    return sorted.filter((group) => {
+        if (filter.status && filter.status !== "ALL") {
+            if (filter.status === "OPEN" && group.openErrorsCount === 0) return false;
+            if (filter.status === "RESOLVED" && group.openErrorsCount > 0) return false;
+        }
+        if (filter.errorType && filter.errorType !== "ALL" && String(group.latestErrorType).toUpperCase() !== String(filter.errorType).toUpperCase()) {
+            return false;
+        }
+        if (filter.search) {
+            const q = filter.search.toLowerCase();
+            return (
+                group.reconciliationName?.toLowerCase().includes(q) ||
+                group.reconciliationCode?.toLowerCase().includes(q) ||
+                group.user?.toLowerCase().includes(q) ||
+                group.latestErrorType?.toLowerCase().includes(q) ||
+                group.latestDescription?.toLowerCase().includes(q)
             );
         }
         return true;
@@ -844,10 +1131,39 @@ export async function getAuditLogSummaries(params = {}) {
         query += `?action=${encodeURIComponent(params.action)}`;
     }
 
-    const [summaries, recs] = await Promise.all([
+    const [summaries, recs, branches] = await Promise.all([
         request(`/audit-logs/summaries${query}`).catch(() => []),
-        request("/reconciliations").catch(() => [])
+        request("/reconciliations").catch(() => []),
+        getBranches().catch(() => [])
     ]);
+
+    const branchCodeMap = new Map();
+    (branches || []).forEach((b) => {
+        if (b.id) branchCodeMap.set(String(b.id), b.code || b.name);
+        if (b.name) branchCodeMap.set(b.name.trim().toLowerCase(), b.code || b.name);
+        if (b.code) branchCodeMap.set(b.code.trim().toLowerCase(), b.code);
+    });
+
+    const formatComposite = (val) => {
+        if (!val || val === "—") return "—";
+        const strVal = String(val).trim();
+        if (strVal.includes("fromBranchId=") || strVal.includes("toBranchId=")) {
+            const pairs = {};
+            strVal.split(",").forEach((part) => {
+                const idx = part.indexOf("=");
+                if (idx !== -1) {
+                    pairs[part.substring(0, idx).trim()] = part.substring(idx + 1).trim();
+                }
+            });
+            const sheet = pairs.sourceSheet ? (pairs.sourceSheet === "M_IN" ? "M In" : "M Out") : "";
+            const fromCode = branchCodeMap.get(String(pairs.fromBranchId)) || `Branch #${pairs.fromBranchId}`;
+            const toCode = branchCodeMap.get(String(pairs.toBranchId)) || `Branch #${pairs.toBranchId}`;
+            const amt = pairs.amount ? `₹${Number(pairs.amount).toLocaleString("en-IN")}` : "";
+            const comm = pairs.commission ? `Comm: ₹${Number(pairs.commission).toLocaleString("en-IN")}` : "";
+            return [sheet, `${fromCode} → ${toCode}`, amt, comm].filter(Boolean).join(" ");
+        }
+        return val;
+    };
 
     const recNameMap = new Map();
     (recs || []).forEach((r) => {
@@ -875,8 +1191,8 @@ export async function getAuditLogSummaries(params = {}) {
             latestTimestamp: item.latestTimestamp,
             user: item.latestUsername || defaultUsername,
             action: item.latestAction,
-            oldValue: item.latestOldValue || "—",
-            newValue: item.latestNewValue || "—",
+            oldValue: formatComposite(item.latestOldValue) || "—",
+            newValue: formatComposite(item.latestNewValue) || "—",
             description: item.latestDescription || `${item.latestAction || "Action"} executed`
         };
     });

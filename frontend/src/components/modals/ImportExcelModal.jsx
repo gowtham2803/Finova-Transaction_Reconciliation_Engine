@@ -101,12 +101,13 @@ export default function ImportExcelModal() {
             setUploadProgress(50);
             setStatusStage("Parsing M_IN and M_OUT transaction rows...");
 
-            const branchList = branches.length > 0 ? branches : await getBranches().catch(() => []);
+            const branchList = await getBranches().catch(() => branches);
+            setBranches(branchList);
             const parsed = await parseExcelWorkbook(file, branchList, importReconciliationData?.id || 0);
 
             await new Promise((r) => setTimeout(r, 300));
             setUploadProgress(85);
-            setStatusStage("Validating branch IDs and numeric amounts...");
+            setStatusStage("Validating branch names against database...");
 
             await new Promise((r) => setTimeout(r, 250));
             setUploadProgress(100);
@@ -116,11 +117,19 @@ export default function ImportExcelModal() {
             setUploading(false);
             setPreviewData(parsed);
 
-            addToast({
-                type: "success",
-                title: "Excel File Loaded",
-                message: `Parsed ${parsed.totalRows} transactions from "${file.name}". Review preview below.`
-            });
+            if (parsed.invalidBranchErrors && parsed.invalidBranchErrors.length > 0) {
+                addToast({
+                    type: "error",
+                    title: "Unregistered Branches Detected",
+                    message: `File contains ${parsed.invalidBranchErrors.length} unregistered branch reference(s). Import is blocked until branches match the database.`
+                });
+            } else {
+                addToast({
+                    type: "success",
+                    title: "Excel File Loaded",
+                    message: `Parsed ${parsed.totalRows} transactions from "${file.name}". All branch names verified against the database.`
+                });
+            }
         } catch (err) {
             setUploading(false);
             resetImport();
@@ -132,9 +141,18 @@ export default function ImportExcelModal() {
         }
     };
 
-
     const handleConfirmImport = async () => {
         if (!previewData) return;
+
+        if (previewData.invalidBranchErrors && previewData.invalidBranchErrors.length > 0) {
+            addToast({
+                type: "error",
+                title: "Import Blocked",
+                message: `Cannot import transactions with ${previewData.invalidBranchErrors.length} unregistered branch name(s). All branches must already exist in the database.`
+            });
+            return;
+        }
+
         let created = null;
         try {
             setConfirming(true);
@@ -322,7 +340,9 @@ export default function ImportExcelModal() {
                                             <span className="excel-filesize-badge">{fileState?.size || previewData.fileSize}</span>
                                         </div>
                                         <div className="excel-file-subtitle">
-                                            {previewData.totalRows} transactions parsed successfully • Ready for YesCapital Engine
+                                            {previewData.invalidBranchErrors && previewData.invalidBranchErrors.length > 0
+                                                ? `${previewData.invalidBranchErrors.length} unregistered branch error(s) detected • Import blocked`
+                                                : `${previewData.totalRows} transactions parsed successfully • Ready for YesCapital Engine`}
                                         </div>
                                     </div>
                                 </div>
@@ -367,14 +387,41 @@ export default function ImportExcelModal() {
                                 </div>
                                 <div className="excel-stat-card">
                                     <div className="excel-stat-header">
-                                        <AlertTriangle size={15} className="text-amber" />
-                                        <span className="excel-stat-label">Warnings</span>
+                                        <AlertTriangle size={15} className={previewData.errorCount > 0 ? "text-rose-400" : "text-amber"} />
+                                        <span className="excel-stat-label">{previewData.errorCount > 0 ? "Branch Errors" : "Warnings"}</span>
                                     </div>
-                                    <div className="excel-stat-val text-amber">
-                                        {previewData.warningCount} <span className="excel-stat-unit">flagged</span>
+                                    <div className={`excel-stat-val ${previewData.errorCount > 0 ? "text-rose-400" : "text-amber"}`}>
+                                        {previewData.errorCount > 0 ? previewData.errorCount : previewData.warningCount} <span className="excel-stat-unit">{previewData.errorCount > 0 ? "errors" : "flagged"}</span>
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Invalid Branch Error Details Box */}
+                            {previewData.invalidBranchErrors && previewData.invalidBranchErrors.length > 0 && (
+                                <div style={{
+                                    marginTop: "1.25rem",
+                                    padding: "1rem",
+                                    backgroundColor: "rgba(239, 68, 68, 0.08)",
+                                    border: "1px solid rgba(239, 68, 68, 0.3)",
+                                    borderRadius: "0.5rem"
+                                }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "#f87171", fontWeight: 600, fontSize: "0.9rem", marginBottom: "0.5rem" }}>
+                                        <AlertTriangle size={18} />
+                                        <span>Unregistered Branches Detected ({previewData.invalidBranchErrors.length} Issue{previewData.invalidBranchErrors.length > 1 ? "s" : ""}) - Import Blocked</span>
+                                    </div>
+
+                                    <div style={{ maxHeight: "150px", overflowY: "auto", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "0.375rem", backgroundColor: "rgba(0,0,0,0.25)", padding: "0.5rem 0.75rem" }}>
+                                        {previewData.invalidBranchErrors.map((err, idx) => (
+                                            <div key={idx} style={{ fontSize: "0.8rem", color: "#fca5a5", padding: "0.3rem 0", display: "flex", alignItems: "center", gap: "0.5rem", borderBottom: idx < previewData.invalidBranchErrors.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+                                                <span style={{ fontWeight: 600, color: "#94a3b8" }}>[{err.sheet} Row {err.row}]</span>
+                                                <span style={{ color: "#e2e8f0" }}>{err.direction}:</span>
+                                                <span style={{ color: "#ef4444", fontWeight: 700, backgroundColor: "rgba(239, 68, 68, 0.2)", padding: "1px 6px", borderRadius: "3px" }}>{err.branchName}</span>
+                                                <span style={{ color: "#94a3b8", fontSize: "0.75rem" }}>is not registered in the database</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -393,10 +440,13 @@ export default function ImportExcelModal() {
                             type="button"
                             className="primary-button confirm-import-btn"
                             onClick={handleConfirmImport}
-                            disabled={confirming}
+                            disabled={confirming || (previewData.invalidBranchErrors && previewData.invalidBranchErrors.length > 0)}
+                            style={previewData.invalidBranchErrors && previewData.invalidBranchErrors.length > 0 ? { opacity: 0.5, cursor: "not-allowed" } : {}}
                         >
                             {confirming ? (
                                 "Importing..."
+                            ) : previewData.invalidBranchErrors && previewData.invalidBranchErrors.length > 0 ? (
+                                "Import Blocked (Unregistered Branches)"
                             ) : (
                                 <>
                                     Confirm Import ({previewData.totalRows} Rows)

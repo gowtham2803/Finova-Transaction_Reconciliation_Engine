@@ -12,8 +12,10 @@ public class TransactionResponse {
     private String sourceSheet;
     private Integer sourceRow;
     private Long fromBranchId;
+    private String fromBranchCode;
     private String fromBranchName;
     private Long toBranchId;
+    private String toBranchCode;
     private String toBranchName;
     private BigDecimal amount;
     private BigDecimal commission;
@@ -73,6 +75,14 @@ public class TransactionResponse {
         this.fromBranchId = fromBranchId;
     }
 
+    public String getFromBranchCode() {
+        return fromBranchCode;
+    }
+
+    public void setFromBranchCode(String fromBranchCode) {
+        this.fromBranchCode = fromBranchCode;
+    }
+
     public String getFromBranchName() {
         return fromBranchName;
     }
@@ -87,6 +97,14 @@ public class TransactionResponse {
 
     public void setToBranchId(Long toBranchId) {
         this.toBranchId = toBranchId;
+    }
+
+    public String getToBranchCode() {
+        return toBranchCode;
+    }
+
+    public void setToBranchCode(String toBranchCode) {
+        this.toBranchCode = toBranchCode;
     }
 
     public String getToBranchName() {

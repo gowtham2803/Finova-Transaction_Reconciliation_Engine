@@ -104,7 +104,9 @@ class TransactionServiceTest {
 
         assertNotNull(response);
         assertEquals("M_IN", response.getSourceSheet());
+        assertEquals("CHN", response.getFromBranchCode());
         assertEquals("Chennai", response.getFromBranchName());
+        assertEquals("MDU", response.getToBranchCode());
         assertEquals("Madurai", response.getToBranchName());
         assertEquals(new BigDecimal("1250.5000"), response.getAmount());
         assertEquals(new BigDecimal("10.0000"), response.getCommission());
@@ -171,7 +173,9 @@ class TransactionServiceTest {
                 transactionService.createBulkTransactions(requests);
 
         assertEquals(2, responses.size());
+        assertEquals("CHN", responses.get(0).getFromBranchCode());
         assertEquals("Chennai", responses.get(0).getFromBranchName());
+        assertEquals("CHN", responses.get(1).getFromBranchCode());
         assertEquals("Chennai", responses.get(1).getFromBranchName());
 
         verify(transactionRepository, times(2))
@@ -219,6 +223,61 @@ class TransactionServiceTest {
     void deleteTransaction_withInvalidId_shouldThrowException() {
         assertThrows(IllegalArgumentException.class, () -> transactionService.deleteTransaction(null));
         assertThrows(IllegalArgumentException.class, () -> transactionService.deleteTransaction(-1L));
+    }
+
+    @Test
+    void createTransaction_withUnknownBranchName_shouldThrowExceptionAndIdentifyBranch() {
+        when(reconciliationRepository.findById(10L))
+                .thenReturn(Optional.of(reconciliation));
+        when(branchRepository.findByNameIgnoreCase("UNKNOWN_BRANCH"))
+                .thenReturn(Optional.empty());
+        when(branchRepository.findByCodeIgnoreCase("UNKNOWN_BRANCH"))
+                .thenReturn(Optional.empty());
+
+        TransactionCreateRequest request = new TransactionCreateRequest();
+        request.setReconciliationId(10L);
+        request.setSourceSheet("M_IN");
+        request.setSourceRow(5);
+        request.setFromBranchName("UNKNOWN_BRANCH");
+        request.setToBranchId(2L);
+        request.setAmount(new BigDecimal("1000.0000"));
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> transactionService.createTransaction(request)
+        );
+
+        assertTrue(ex.getMessage().contains("[M In Row 5]"));
+        assertTrue(ex.getMessage().contains("UNKNOWN_BRANCH"));
+        assertTrue(ex.getMessage().contains("does not exist in the database"));
+        verify(branchRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    void createTransaction_withUnknownBranchId_shouldThrowException() {
+        when(reconciliationRepository.findById(10L))
+                .thenReturn(Optional.of(reconciliation));
+        when(branchRepository.findById(999L))
+                .thenReturn(Optional.empty());
+
+        TransactionCreateRequest request = new TransactionCreateRequest();
+        request.setReconciliationId(10L);
+        request.setSourceSheet("M_OUT");
+        request.setSourceRow(3);
+        request.setFromBranchId(999L);
+        request.setToBranchId(2L);
+        request.setAmount(new BigDecimal("1000.0000"));
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> transactionService.createTransaction(request)
+        );
+
+        assertTrue(ex.getMessage().contains("[M Out Row 3]"));
+        assertTrue(ex.getMessage().contains("999"));
+        assertTrue(ex.getMessage().contains("Only registered branches are allowed"));
+        verify(transactionRepository, never()).save(any());
     }
 
     @Test
