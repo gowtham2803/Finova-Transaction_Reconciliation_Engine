@@ -1749,9 +1749,9 @@ function SpreadsheetTable({
             >
                 <table className="spreadsheet-grid-table">
                     <thead>
-                        <tr>
+                        <tr className="spreadsheet-header-row">
                             {allowDelete && (
-                                <th className="col-select text-center">
+                                <th className="col-select text-center whitespace-nowrap">
                                     <input
                                         type="checkbox"
                                         className="custom-table-checkbox"
@@ -1762,12 +1762,12 @@ function SpreadsheetTable({
                                     />
                                 </th>
                             )}
-                            <th className="col-idx">#</th>
-                            <th className="col-status">ST</th>
-                            <th className="col-branch">BRANCH</th>
-                            <th className="col-branch">{isMIn ? "From BRANCH" : "To BRANCH"}</th>
-                            <th className="col-amount text-right">AMOUNT (₹)</th>
-                            <th className="col-comm text-right">COMMISSION (₹)</th>
+                            <th className="col-idx text-center whitespace-nowrap">#</th>
+                            <th className="col-status text-center whitespace-nowrap">ST</th>
+                            <th className="col-branch whitespace-nowrap">BRANCH</th>
+                            <th className="col-branch whitespace-nowrap">{isMIn ? "FROM BRANCH" : "TO BRANCH"}</th>
+                            <th className="col-amount text-right whitespace-nowrap">AMOUNT (₹)</th>
+                            <th className="col-comm text-right whitespace-nowrap">COMMISSION (₹)</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1797,7 +1797,7 @@ function SpreadsheetTable({
                                             </td>
                                         )}
                                         {/* Row number stays identical on both sides */}
-                                        <td className="col-idx cell-readonly">
+                                        <td className="col-idx cell-readonly text-center">
                                             <div className="flex items-center justify-center text-slate-500 font-mono text-xs">
                                                 {rowNumber}
                                             </div>
@@ -1906,8 +1906,8 @@ function SpreadsheetTable({
                                     )}
 
                                     {/* Index */}
-                                    <td className="col-idx cell-readonly">
-                                        <div className="flex items-center justify-center gap-1">
+                                    <td className="col-idx cell-readonly text-center">
+                                        <div className="flex items-center justify-center gap-1 font-mono text-xs">
                                             {isRowUnsaved && <span className="cell-unsaved-dot"></span>}
                                             {rowNumber}
                                         </div>

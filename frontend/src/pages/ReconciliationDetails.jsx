@@ -1073,7 +1073,7 @@ export default function ReconciliationDetails() {
                                                             onClick={() => setResolvingError(err)}
                                                         >
                                                             <CheckCircle2 size={13} />
-                                                            <span>Resolve Error</span>
+                                                            <span>Resolve</span>
                                                         </button>
                                                     ) : (
                                                         <span className="text-xs text-emerald-600 font-medium">

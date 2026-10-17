@@ -1,10 +1,7 @@
 import { useState } from "react";
-import { X, CheckCircle2, ShieldCheck } from "lucide-react";
+import { X, CheckCircle2, ShieldCheck, AlertTriangle, FileSpreadsheet } from "lucide-react";
 
 export default function ResolveErrorModal({ isOpen, onClose, error, onConfirmResolve }) {
-    const [resolutionNotes, setResolutionNotes] = useState(
-        "Verified with counterpart branch statement. Voucher adjusted and verified in clearing registry."
-    );
     const [resolving, setResolving] = useState(false);
 
     if (!isOpen || !error) return null;
@@ -13,12 +10,16 @@ export default function ResolveErrorModal({ isOpen, onClose, error, onConfirmRes
         e.preventDefault();
         try {
             setResolving(true);
-            await onConfirmResolve(error.id, resolutionNotes);
+            await onConfirmResolve(error.id, "Manual verification completed and voucher reconciled.");
             onClose();
         } finally {
             setResolving(false);
         }
     };
+
+    const sheet = error.targetSheet || (String(error.errorType || "").toUpperCase() === "MISSING_M_IN" ? "M_OUT" : "M_IN");
+    const isMOut = sheet === "M_OUT";
+    const rowNum = error.rowNumber ?? error.rowDisplay;
 
     return (
         <div className="modal-backdrop" onClick={onClose}>
@@ -28,18 +29,25 @@ export default function ResolveErrorModal({ isOpen, onClose, error, onConfirmRes
                 role="dialog"
                 aria-modal="true"
             >
-                <div className="modal-header">
-                    <div className="flex items-center gap-2">
-                        <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
-                            <ShieldCheck size={20} />
+                {/* Header */}
+                <div className="modal-header resolve-modal-header">
+                    <div className="resolve-header-left">
+                        <div className="resolve-header-icon-box">
+                            <ShieldCheck size={22} />
                         </div>
-                        <div>
-                            <h3 className="modal-title text-base font-bold">
+                        <div className="resolve-header-title-wrap">
+                            <h3 className="modal-title resolve-modal-title">
                                 Resolve Reconciliation Error
                             </h3>
-                            <p className="modal-subtitle">
-                                {error.id} • {error.errorType}
-                            </p>
+                            <div className="resolve-meta-tags">
+                                <span className="resolve-tag resolve-tag-type">{error.errorType}</span>
+                                {rowNum && (
+                                    <>
+                                        <span className="resolve-meta-dot">•</span>
+                                        <span className="resolve-tag resolve-tag-row">Row {rowNum}</span>
+                                    </>
+                                )}
+                            </div>
                         </div>
                     </div>
                     <button
@@ -48,44 +56,43 @@ export default function ResolveErrorModal({ isOpen, onClose, error, onConfirmRes
                         onClick={onClose}
                         aria-label="Close"
                     >
-                        <X size={16} />
+                        <X size={18} />
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="modal-form">
-                    <div className="error-detail-recap-box mb-4 p-4 rounded-xl bg-black/20 border border-white/5">
-                        <div className="text-xs font-semibold text-slate-400 mb-1">
-                            Transaction Context:
-                        </div>
-                        <div className="text-xs text-slate-200 font-medium mb-2 font-mono">
-                            {error.transactionInfo}
-                        </div>
-                        <div className="text-xs text-rose-400 bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">
-                            {error.description}
+                {/* Form */}
+                <form onSubmit={handleSubmit} className="resolve-error-form">
+                    <div className="modal-body resolve-modal-body">
+                        {/* Transaction Context & Error Banner */}
+                        <div className="resolve-context-card">
+                            <div className="resolve-context-header">
+                                <span className="resolve-context-label">
+                                    <FileSpreadsheet size={13} />
+                                    <span>Transaction Context</span>
+                                </span>
+                                <span className={`resolve-sheet-pill ${isMOut ? "sheet-pill-out" : "sheet-pill-in"}`}>
+                                    {isMOut ? "M Out" : "M In"}
+                                </span>
+                            </div>
+
+                            <div className="resolve-transaction-info">
+                                {error.transactionInfo}
+                            </div>
+
+                            <div className="resolve-error-banner">
+                                <AlertTriangle size={15} className="resolve-error-banner-icon" />
+                                <div className="resolve-error-banner-text">
+                                    {error.description}
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <div className="form-group">
-                        <label className="form-label" htmlFor="resolution-notes">
-                            Resolution Notes / Audit Justification <span className="text-red-500">*</span>
-                        </label>
-                        <textarea
-                            id="resolution-notes"
-                            rows={3}
-                            className="form-textarea"
-                            value={resolutionNotes}
-                            onChange={(e) => setResolutionNotes(e.target.value)}
-                            required
-                        />
-                        <div className="text-xs text-slate-400 mt-1">
-                            This explanation will be permanently recorded in the immutable Audit History trail.
-                        </div>
-                    </div>
-
-                    <div className="modal-actions">
+                    {/* Actions Footer */}
+                    <div className="modal-actions resolve-modal-actions">
                         <button
                             type="button"
-                            className="secondary-button"
+                            className="secondary-button resolve-btn-cancel"
                             onClick={onClose}
                             disabled={resolving}
                         >
@@ -93,11 +100,11 @@ export default function ResolveErrorModal({ isOpen, onClose, error, onConfirmRes
                         </button>
                         <button
                             type="submit"
-                            className="primary-button bg-emerald-600 hover:bg-emerald-700 flex items-center gap-1.5"
+                            className="primary-button resolve-btn-submit"
                             disabled={resolving}
                         >
                             <CheckCircle2 size={16} />
-                            {resolving ? "Resolving..." : "Mark as Resolved"}
+                            <span>{resolving ? "Resolving..." : "Mark as Resolved"}</span>
                         </button>
                     </div>
                 </form>
