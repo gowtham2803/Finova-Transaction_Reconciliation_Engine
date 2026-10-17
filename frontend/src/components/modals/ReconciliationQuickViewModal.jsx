@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
     X,
@@ -13,17 +14,57 @@ import {
     FileSpreadsheet,
     Info,
     ShieldAlert,
-    CheckCircle
+    CheckCircle,
+    Trash2
 } from "lucide-react";
+import ConfirmDeleteReconciliationModal from "./ConfirmDeleteReconciliationModal";
+import { deleteReconciliation } from "../../services/mockApi";
+import { useApp } from "../../context/AppContext";
 
-export default function ReconciliationQuickViewModal({ isOpen, onClose, reconciliation }) {
+export default function ReconciliationQuickViewModal({
+    isOpen,
+    onClose,
+    reconciliation,
+    onDeleteSuccess
+}) {
     const navigate = useNavigate();
+    const { addToast, triggerRefresh } = useApp();
+    const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     if (!isOpen || !reconciliation) return null;
 
     const handleOpenWorkspace = () => {
         onClose();
         navigate(`/reconciliations/${reconciliation.id}?tab=transactions`);
+    };
+
+    const handleDeletePermanently = async () => {
+        try {
+            setIsDeleting(true);
+            await deleteReconciliation(reconciliation.id);
+            addToast({
+                type: "success",
+                title: "Reconciliation Deleted",
+                message: `"${reconciliation.reconciliationName}" and all associated data have been permanently deleted.`
+            });
+            setIsConfirmOpen(false);
+            if (onDeleteSuccess) {
+                onDeleteSuccess(reconciliation.id);
+            }
+            if (triggerRefresh) {
+                triggerRefresh();
+            }
+            onClose();
+        } catch (err) {
+            addToast({
+                type: "error",
+                title: "Delete Failed",
+                message: err.message || "Failed to delete reconciliation. Please try again."
+            });
+        } finally {
+            setIsDeleting(false);
+        }
     };
 
     const formatDate = (val) => {
@@ -213,19 +254,40 @@ export default function ReconciliationQuickViewModal({ isOpen, onClose, reconcil
                         type="button"
                         className="secondary-button"
                         onClick={onClose}
+                        disabled={isDeleting}
                     >
                         Close
                     </button>
                     <button
                         type="button"
+                        className="danger-button flex items-center gap-2"
+                        onClick={() => setIsConfirmOpen(true)}
+                        disabled={isDeleting}
+                        title="Delete Reconciliation"
+                    >
+                        <Trash2 size={15} />
+                        <span>Delete</span>
+                    </button>
+                    <button
+                        type="button"
                         className="primary-button flex items-center gap-2"
                         onClick={handleOpenWorkspace}
+                        disabled={isDeleting}
                     >
                         <span>Open Full Workspace</span>
                         <ArrowRight size={15} />
                     </button>
                 </div>
             </div>
+
+            {/* Confirmation Dialog */}
+            <ConfirmDeleteReconciliationModal
+                isOpen={isConfirmOpen}
+                onClose={() => !isDeleting && setIsConfirmOpen(false)}
+                onConfirm={handleDeletePermanently}
+                reconciliation={reconciliation}
+                isDeleting={isDeleting}
+            />
         </div>
     );
 }

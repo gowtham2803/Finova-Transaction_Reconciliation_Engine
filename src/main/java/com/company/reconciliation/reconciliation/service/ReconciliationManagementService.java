@@ -6,6 +6,7 @@ import com.company.reconciliation.reconciliation.dto.request.ReconciliationCreat
 import com.company.reconciliation.reconciliation.dto.response.ReconciliationResponse;
 import com.company.reconciliation.reconciliation.entity.Reconciliation;
 import com.company.reconciliation.reconciliation.error.repository.ReconciliationErrorRepository;
+import com.company.reconciliation.reconciliation.error.resolution.repository.ErrorResolutionRepository;
 import com.company.reconciliation.reconciliation.repository.ReconciliationRepository;
 import com.company.reconciliation.reconciliation.result.repository.ReconciliationResultRepository;
 import com.company.reconciliation.transaction.repository.TransactionRepository;
@@ -29,6 +30,7 @@ public class ReconciliationManagementService {
     private final AuditLogRepository auditLogRepository;
     private final ReconciliationResultRepository reconciliationResultRepository;
     private final ReconciliationErrorRepository reconciliationErrorRepository;
+    private final ErrorResolutionRepository errorResolutionRepository;
     private final TransactionRepository transactionRepository;
 
     public ReconciliationManagementService(
@@ -38,6 +40,7 @@ public class ReconciliationManagementService {
             AuditLogRepository auditLogRepository,
             ReconciliationResultRepository reconciliationResultRepository,
             ReconciliationErrorRepository reconciliationErrorRepository,
+            ErrorResolutionRepository errorResolutionRepository,
             TransactionRepository transactionRepository
     ) {
         this.reconciliationRepository = reconciliationRepository;
@@ -46,6 +49,7 @@ public class ReconciliationManagementService {
         this.auditLogRepository = auditLogRepository;
         this.reconciliationResultRepository = reconciliationResultRepository;
         this.reconciliationErrorRepository = reconciliationErrorRepository;
+        this.errorResolutionRepository = errorResolutionRepository;
         this.transactionRepository = transactionRepository;
     }
 
@@ -208,10 +212,46 @@ public class ReconciliationManagementService {
                         "Reconciliation not found with ID: " + id
                 ));
 
+        String recInfo = reconciliation.getReconciliationName() != null
+                ? reconciliation.getReconciliationName() + " (" + reconciliation.getReconciliationCode() + ")"
+                : reconciliation.getReconciliationCode();
+        Long creatorUserId = reconciliation.getCreatedBy() != null ? reconciliation.getCreatedBy().getId() : null;
+
+        // 1. Detach audit logs from this reconciliation and its transactions to preserve compliance history
+        auditLogRepository.detachTransactionsByReconciliationId(id);
+        auditLogRepository.detachReconciliation(id, recInfo);
+
+        // 2. Delete child error resolutions
+        errorResolutionRepository.deleteByReconciliationId(id);
+
+        // 3. Delete errors
         reconciliationErrorRepository.deleteByReconciliationId(id);
+
+        // 4. Delete reconciliation results (which reference transactions)
         reconciliationResultRepository.deleteByReconciliationId(id);
-        auditLogRepository.deleteByReconciliationId(id);
+
+        // 5. Delete transactions
         transactionRepository.deleteByReconciliationId(id);
+
+        // 6. Delete reconciliation itself
         reconciliationRepository.delete(reconciliation);
+
+        // 7. Record an immutable audit log entry for the deletion itself
+        if (creatorUserId != null) {
+            try {
+                auditService.recordAction(
+                        creatorUserId,
+                        null,
+                        null,
+                        "RECONCILIATION_DELETED",
+                        "reconciliation",
+                        recInfo,
+                        null,
+                        "Reconciliation " + recInfo + " was permanently deleted.",
+                        null
+                );
+            } catch (Exception ignored) {
+            }
+        }
     }
 }

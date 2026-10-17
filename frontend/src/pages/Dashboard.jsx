@@ -22,7 +22,7 @@ import {
 
 export default function Dashboard() {
     const navigate = useNavigate();
-    const { openCreateModal, refreshSignal } = useApp();
+    const { openCreateModal, refreshSignal, triggerRefresh } = useApp();
 
     const [reconciliations, setReconciliations] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -404,6 +404,11 @@ export default function Dashboard() {
                 isOpen={!!quickViewRec}
                 reconciliation={quickViewRec}
                 onClose={() => setQuickViewRec(null)}
+                onDeleteSuccess={(deletedId) => {
+                    setReconciliations((prev) => prev.filter((r) => r.id !== deletedId));
+                    setQuickViewRec(null);
+                    triggerRefresh();
+                }}
             />
         </div>
     );

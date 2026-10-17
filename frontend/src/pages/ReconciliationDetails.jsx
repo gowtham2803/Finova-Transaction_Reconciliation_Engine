@@ -593,7 +593,7 @@ export default function ReconciliationDetails() {
             <div className="p-8">
                 <div className="error-banner">
                     <AlertTriangle size={20} />
-                    <span>Reconciliation #{reconciliationId} not found in store.</span>
+                    <span>Reconciliation #{reconciliationId} not found or has been deleted.</span>
                     <button
                         type="button"
                         className="retry-btn"

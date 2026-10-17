@@ -72,6 +72,23 @@ public interface AuditLogRepository
     );
 
     @org.springframework.data.jpa.repository.Modifying
+    @Query("UPDATE AuditLog a SET a.transaction = null WHERE a.transaction.reconciliation.id = :reconciliationId")
+    void detachTransactionsByReconciliationId(@Param("reconciliationId") Long reconciliationId);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("""
+            UPDATE AuditLog a
+            SET a.transaction = null,
+                a.reconciliation = null,
+                a.reason = CASE
+                    WHEN a.reason IS NULL THEN CONCAT('[Archived: Reconciliation ', :reconciliationInfo, ' deleted]')
+                    ELSE CONCAT(a.reason, ' [Archived: Reconciliation ', :reconciliationInfo, ' deleted]')
+                END
+            WHERE a.reconciliation.id = :reconciliationId
+            """)
+    void detachReconciliation(@Param("reconciliationId") Long reconciliationId, @Param("reconciliationInfo") String reconciliationInfo);
+
+    @org.springframework.data.jpa.repository.Modifying
     @Query("DELETE FROM AuditLog a WHERE a.reconciliation.id = :reconciliationId")
     void deleteByReconciliationId(@Param("reconciliationId") Long reconciliationId);
 }

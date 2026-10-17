@@ -354,9 +354,19 @@ export async function checkReconciliationNameExists(name) {
  */
 export async function deleteReconciliation(reconciliationId) {
     const id = Number(reconciliationId);
-    return await request(`/reconciliations/${id}`, {
+    const res = await request(`/reconciliations/${id}`, {
         method: "DELETE"
     });
+    try {
+        const store = loadMetadataStore();
+        if (store[String(id)]) {
+            delete store[String(id)];
+            saveMetadataStore(store);
+        }
+    } catch {
+        // Ignore storage errors
+    }
+    return res;
 }
 
 /**
