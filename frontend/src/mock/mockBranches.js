@@ -32,5 +32,8 @@ export const mockBranches = [
     { id: 31, code: "NGL", name: "NAGERCOIL", region: "South", status: "ACTIVE" },
     { id: 32, code: "SKC", name: "SIVAKASI", region: "South", status: "ACTIVE" },
     { id: 33, code: "PDK", name: "PUDUKKOTTAI", region: "South", status: "ACTIVE" },
-    { id: 34, code: "PKT", name: "PATTUKKOTTAI", region: "South", status: "ACTIVE" }
+    { id: 34, code: "PKT", name: "PATTUKKOTTAI", region: "South", status: "ACTIVE" },
+    { id: 35, code: "BTB", name: "SUSPENSE", region: "South", status: "ACTIVE" },
+    { id: 36, code: "BT", name: "SUSPENSEONE", region: "South", status: "ACTIVE" }
 ];
+

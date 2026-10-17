@@ -29,7 +29,8 @@ import {
     Tag,
     ShieldCheck,
     Search,
-    ChevronRight
+    ChevronRight,
+    ExternalLink
 } from "lucide-react";
 
 /* Modern, stylish, glowing scorecard visual icons styled like the reference React logo */
@@ -229,6 +230,74 @@ export default function ReconciliationDetails() {
 
     const handleTabChange = (tabKey) => {
         setSearchParams({ tab: tabKey });
+    };
+
+    const handleNavigateToError = (err) => {
+        if (!err) return;
+
+        // 1. Identify sheet: M_IN or M_OUT
+        let sheet = err.targetSheet || "M_IN";
+        const errTypeUpper = String(err.errorType || "").toUpperCase();
+        const descLower = String(err.description || "").toLowerCase();
+
+        if (errTypeUpper === "MISSING_M_IN" || (err.mOutRow && !err.mInRow)) {
+            sheet = "M_OUT";
+        } else if (errTypeUpper === "MISSING_M_OUT" || (err.mInRow && !err.mOutRow)) {
+            sheet = "M_IN";
+        } else if (err.mOutTransaction && !err.mInTransaction) {
+            sheet = "M_OUT";
+        } else if (err.mInTransaction && !err.mOutTransaction) {
+            sheet = "M_IN";
+        } else if (descLower.includes("m out") || descLower.includes("m_out")) {
+            sheet = "M_OUT";
+        } else if (descLower.includes("m in") || descLower.includes("m_in")) {
+            sheet = "M_IN";
+        }
+
+        // 2. Identify target transaction ID and source row
+        const targetTxnId = err.targetTxnId || (sheet === "M_OUT"
+            ? (err.mOutTransaction?.id || err.transactionId)
+            : (err.mInTransaction?.id || err.transactionId));
+
+        const targetSourceRow = err.targetRow || err.rowNumber || (sheet === "M_OUT"
+            ? (err.mOutRow || err.mInRow)
+            : (err.mInRow || err.mOutRow));
+
+        // 3. Identify field to highlight where applicable
+        let field = err.targetField || null;
+        if (!field) {
+            if (errTypeUpper.includes("COMMISSION") || descLower.includes("commission")) {
+                field = "commission";
+            } else if (errTypeUpper.includes("AMOUNT") || descLower.includes("amount") || descLower.includes("variance")) {
+                field = "amount";
+            } else if (errTypeUpper.includes("BRANCH") || descLower.includes("branch")) {
+                field = sheet === "M_IN" ? "toBranch" : "fromBranch";
+            }
+        }
+
+        // 4. Update URL params to navigate to Transactions tab
+        setSearchParams({
+            tab: "transactions",
+            focusTxnId: targetTxnId || "",
+            focusSheet: sheet,
+            focusField: field || "",
+            focusRow: targetSourceRow || ""
+        });
+
+        // 5. Trigger focus on workspace
+        setTimeout(() => {
+            if (workspaceRef.current?.focusTransaction) {
+                workspaceRef.current.focusTransaction({
+                    txnId: targetTxnId,
+                    sheet,
+                    field,
+                    sourceRow: targetSourceRow,
+                    errorType: err.errorType,
+                    description: err.description,
+                    force: true
+                });
+            }
+        }, 80);
     };
 
     const handleExecuteRun = async () => {
@@ -493,9 +562,10 @@ export default function ReconciliationDetails() {
                         String(e.id)?.toLowerCase().includes(q) ||
                         e.transactionInfo?.toLowerCase().includes(q) ||
                         e.errorType?.toLowerCase().includes(q) ||
+                        (e.rowNumber !== undefined && e.rowNumber !== null && String(e.rowNumber).includes(q)) ||
+                        (e.rowDisplay && String(e.rowDisplay).toLowerCase().includes(q)) ||
                         (e.mInRow && String(e.mInRow).includes(q)) ||
-                        (e.mOutRow && String(e.mOutRow).includes(q)) ||
-                        (e.rowDisplay && e.rowDisplay.toLowerCase().includes(q))
+                        (e.mOutRow && String(e.mOutRow).includes(q))
                     );
                 }
                 return true;
@@ -945,7 +1015,7 @@ export default function ReconciliationDetails() {
                                         <th>Transaction Info</th>
                                         <th>Error Type</th>
                                         <th>Description</th>
-                                        <th>Status</th>
+                                        <th>GO TO</th>
                                         <th>Created</th>
                                         <th className="text-center">Action</th>
                                     </tr>
@@ -961,23 +1031,9 @@ export default function ReconciliationDetails() {
                                         filteredErrors.map((err) => (
                                             <tr key={err.id}>
                                                 <td className="error-row-cell whitespace-nowrap">
-                                                    <div className="error-row-stack">
-                                                        {err.mInRow ? (
-                                                            <div className="error-row-line">
-                                                                <span className="error-row-label-in">M In:</span>
-                                                                <span className="error-row-num">{err.mInRow}</span>
-                                                            </div>
-                                                        ) : null}
-                                                        {err.mOutRow ? (
-                                                            <div className="error-row-line">
-                                                                <span className="error-row-label-out">M Out:</span>
-                                                                <span className="error-row-num">{err.mOutRow}</span>
-                                                            </div>
-                                                        ) : null}
-                                                        {!err.mInRow && !err.mOutRow ? (
-                                                            <span className="text-slate-400">—</span>
-                                                        ) : null}
-                                                    </div>
+                                                    <span className="error-row-num">
+                                                        {err.rowNumber ?? (err.rowDisplay || "—")}
+                                                    </span>
                                                 </td>
                                                 <td className="font-medium text-slate-800 text-xs">
                                                     {err.transactionInfo}
@@ -996,11 +1052,15 @@ export default function ReconciliationDetails() {
                                                     )}
                                                 </td>
                                                 <td>
-                                                    <span className={`status-badge ${
-                                                        err.status === "RESOLVED" ? "status-success" : "status-error"
-                                                    }`}>
-                                                        {err.status}
-                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        className={`goto-open-btn ${err.status === "RESOLVED" ? "goto-open-btn-resolved" : ""}`}
+                                                        onClick={() => handleNavigateToError(err)}
+                                                        title={`Navigate directly to error row in ${err.targetSheet === "M_OUT" ? "M Out" : "M In"} table`}
+                                                    >
+                                                        <ExternalLink size={12} />
+                                                        <span>Open</span>
+                                                    </button>
                                                 </td>
                                                 <td className="text-xs text-slate-500 whitespace-nowrap">
                                                     {formatDate(err.createdAt)}

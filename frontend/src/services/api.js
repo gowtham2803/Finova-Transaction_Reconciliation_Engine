@@ -1,4 +1,5 @@
 import { initialMockReconciliations } from "../mock/mockReconciliations";
+import { computeTransactionRowMap, buildAlignedSlots } from "../utils/alignmentUtils";
 
 /**
  * YesCapital Production API Service Layer
@@ -821,6 +822,8 @@ export async function getReconciliationErrors(reconciliationId, status = null) {
     const resultMap = new Map();
     (results || []).forEach((r) => resultMap.set(Number(r.id), r));
 
+    const { getAlignedRow } = computeTransactionRowMap(txns, results);
+
     return errors.map((err) => {
         const result = err.reconciliationResultId ? resultMap.get(Number(err.reconciliationResultId)) : null;
         const mIn = result?.mInTransactionId ? txnMap.get(Number(result.mInTransactionId)) : null;
@@ -854,16 +857,31 @@ export async function getReconciliationErrors(reconciliationId, status = null) {
             transactionInfo = `${fromCode} → ${toCode} (M_OUT: ₹${Number(mOut.amount).toLocaleString("en-IN")})`;
         }
 
-        const mInRow = mIn?.sourceRow ?? null;
-        const mOutRow = mOut?.sourceRow ?? null;
+        const alignedRow = getAlignedRow(err, mIn, mOut);
+        const rowDisplay = alignedRow !== null && alignedRow !== undefined ? String(alignedRow) : "—";
 
-        let rowDisplay = "—";
-        if (mInRow && mOutRow) {
-            rowDisplay = mInRow === mOutRow ? `Row #${mInRow}` : `M In: #${mInRow}, M Out: #${mOutRow}`;
-        } else if (mInRow) {
-            rowDisplay = `M In: #${mInRow}`;
-        } else if (mOutRow) {
-            rowDisplay = `M Out: #${mOutRow}`;
+        let targetSheet = "M_IN";
+        const errTypeUpper = String(err.errorType || "").toUpperCase();
+        if (errTypeUpper === "MISSING_M_IN" || (mOut && !mIn)) {
+            targetSheet = "M_OUT";
+        } else if (errTypeUpper === "MISSING_M_OUT" || (mIn && !mOut)) {
+            targetSheet = "M_IN";
+        } else if (err.description?.toLowerCase().includes("m out") || err.description?.toLowerCase().includes("m_out")) {
+            targetSheet = "M_OUT";
+        } else if (err.description?.toLowerCase().includes("m in") || err.description?.toLowerCase().includes("m_in")) {
+            targetSheet = "M_IN";
+        }
+
+        const targetTxnId = targetSheet === "M_OUT" ? (mOut?.id || mIn?.id) : (mIn?.id || mOut?.id);
+        const targetRow = alignedRow;
+
+        let targetField = null;
+        if (errTypeUpper.includes("COMMISSION") || err.description?.toLowerCase().includes("commission")) {
+            targetField = "commission";
+        } else if (errTypeUpper.includes("AMOUNT") || err.description?.toLowerCase().includes("amount") || err.description?.toLowerCase().includes("variance")) {
+            targetField = "amount";
+        } else if (errTypeUpper.includes("BRANCH") || err.description?.toLowerCase().includes("branch")) {
+            targetField = targetSheet === "M_IN" ? "toBranch" : "fromBranch";
         }
 
         return {
@@ -872,11 +890,16 @@ export async function getReconciliationErrors(reconciliationId, status = null) {
             reconciliationName: recMeta?.reconciliationName || `Reconciliation #${recId}`,
             transactionId: mIn?.id || mOut?.id || null,
             counterpartTransactionId: mOut?.id || mIn?.id || null,
-            mInRow,
-            mOutRow,
+            targetSheet,
+            targetTxnId: targetTxnId ? Number(targetTxnId) : null,
+            targetRow: targetRow ? Number(targetRow) : null,
+            rowNumber: alignedRow,
+            rowDisplay,
+            targetField,
+            mInRow: alignedRow,
+            mOutRow: alignedRow,
             mInTransaction: mIn,
             mOutTransaction: mOut,
-            rowDisplay,
             transactionInfo,
             resolutionNotes: err.status === "RESOLVED" ? "Manual exception sign-off completed." : null
         };

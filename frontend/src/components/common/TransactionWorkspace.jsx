@@ -1,5 +1,7 @@
-import { useState, useEffect, useMemo, useCallback, forwardRef, useImperativeHandle } from "react";
+import { useState, useEffect, useMemo, useCallback, forwardRef, useImperativeHandle, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useApp } from "../../context/AppContext";
+import { buildAlignedSlots } from "../../utils/alignmentUtils";
 import {
     getBranches,
     getTransactionsByReconciliation,
@@ -29,12 +31,23 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
     ref
 ) {
     const { addToast } = useApp();
+    const [searchParams, setSearchParams] = useSearchParams();
+
+    // Synchronized scrolling and focus tracking refs
+    const mInScrollRef = useRef(null);
+    const mOutScrollRef = useRef(null);
+    const isSyncingScroll = useRef(false);
+    const lastFocusRequestRef = useRef(null);
+    const scrollAnimationTimeoutRef = useRef(null);
 
     const [mInRows, setMInRows] = useState([]);
     const [mOutRows, setMOutRows] = useState([]);
     const [branches, setBranches] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+
+    // Active error row/cell highlight targeted from Errors tab
+    const [focusedErrorTarget, setFocusedErrorTarget] = useState(null); // { txnId, sheet, field, sourceRow }
 
     // View Mode Switcher: "split" | "m_in" | "m_out"
     const [viewMode, setViewMode] = useState("split");
@@ -226,13 +239,24 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         });
     };
 
-    const handleCellChange = (sheet, rowIndex, field, value) => {
+    const handleCellChange = (sheet, rowIdOrIndex, field, value) => {
         const isMIn = sheet === "M_IN";
         const setter = isMIn ? setMInRows : setMOutRows;
 
         setter((prev) => {
             const updated = [...prev];
-            const target = { ...updated[rowIndex] };
+            let targetIndex = -1;
+            if (typeof rowIdOrIndex === "number" && rowIdOrIndex >= 0 && rowIdOrIndex < updated.length && updated[rowIdOrIndex]?.id === rowIdOrIndex) {
+                targetIndex = rowIdOrIndex;
+            } else {
+                targetIndex = updated.findIndex((r) => String(r.id) === String(rowIdOrIndex));
+            }
+            if (targetIndex === -1 && typeof rowIdOrIndex === "number" && rowIdOrIndex >= 0 && rowIdOrIndex < updated.length) {
+                targetIndex = rowIdOrIndex;
+            }
+            if (targetIndex === -1) return prev;
+
+            const target = { ...updated[targetIndex] };
 
             if (field === "fromBranch" || field === "fromBranchCode") {
                 const clean = (value || "").trim().toUpperCase();
@@ -282,12 +306,12 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                 target[field] = value;
             }
 
-            updated[rowIndex] = target;
+            updated[targetIndex] = target;
 
             // Track unsaved
             setUnsavedChanges((current) => {
                 const next = new Set(current);
-                next.add(target.id || `row-${sheet}-${rowIndex}`);
+                next.add(target.id || `row-${sheet}-${targetIndex}`);
                 return next;
             });
 
@@ -295,7 +319,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         });
     };
 
-    const handleBranchBlur = (sheet, rowIndex, field, value) => {
+    const handleBranchBlur = (sheet, rowIdOrIndex, field, value, displayRowIndex) => {
         const clean = (value || "").trim().toUpperCase();
         if (!clean) return;
 
@@ -309,11 +333,12 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
             const isFirstCol = (sheet === "M_IN" && (field === "toBranch" || field === "toBranchCode")) ||
                                (sheet === "M_OUT" && (field === "fromBranch" || field === "fromBranchCode"));
             const fieldLabel = isFirstCol ? "Branch" : (sheet === "M_IN" ? "From Branch" : "To Branch");
+            const rowNum = displayRowIndex !== undefined ? displayRowIndex : (typeof rowIdOrIndex === "number" ? rowIdOrIndex + 1 : "1");
 
             addToast({
                 type: "error",
                 title: "Invalid Branch Code",
-                message: `[${sheetLabel} Row ${rowIndex + 1}] '${clean}' is not recognized in the database. Only registered branch codes are accepted.`
+                message: `[${sheetLabel} Row ${rowNum}] '${clean}' is not recognized in the database. Only registered branch codes are accepted.`
             });
         }
     };
@@ -549,6 +574,210 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         }
     };
 
+    const doFocusTransaction = useCallback(({ txnId, sheet, field, sourceRow, errorType, description, force }) => {
+        const focusKey = `${txnId || ""}_${sheet || ""}_${sourceRow || ""}_${field || ""}`;
+        const now = Date.now();
+
+        // Prevent duplicate trigger within 800ms unless explicitly forced
+        if (!force && lastFocusRequestRef.current && lastFocusRequestRef.current.key === focusKey && (now - lastFocusRequestRef.current.time) < 800) {
+            if (description && !lastFocusRequestRef.current.description) {
+                lastFocusRequestRef.current.description = description;
+            }
+            return;
+        }
+
+        lastFocusRequestRef.current = {
+            key: focusKey,
+            time: now,
+            description: description || null,
+            notified: false
+        };
+
+        // 1. Reset search and filters so row is guaranteed visible
+        setStatusFilter("ALL");
+        setSearchQuery("");
+
+        // 2. Ensure viewMode reveals target sheet
+        const resolvedSheet = sheet || "M_IN";
+        if (resolvedSheet === "M_IN" && viewMode === "m_out") {
+            setViewMode("split");
+        } else if (resolvedSheet === "M_OUT" && viewMode === "m_in") {
+            setViewMode("split");
+        }
+
+        // 3. Find the target row in our data
+        const targetPool = resolvedSheet === "M_OUT" ? mOutRows : mInRows;
+        const fallbackPool = resolvedSheet === "M_OUT" ? mInRows : mOutRows;
+
+        let foundRow = targetPool.find((r) =>
+            (txnId && (String(r.id) === String(txnId) || Number(r.id) === Number(txnId))) ||
+            (sourceRow && (Number(r.sourceRow) === Number(sourceRow) || Number(r.displayIndex) === Number(sourceRow)))
+        );
+
+        let actualSheet = resolvedSheet;
+        if (!foundRow) {
+            foundRow = fallbackPool.find((r) =>
+                (txnId && (String(r.id) === String(txnId) || Number(r.id) === Number(txnId))) ||
+                (sourceRow && (Number(r.sourceRow) === Number(sourceRow) || Number(r.displayIndex) === Number(sourceRow)))
+            );
+            if (foundRow) {
+                actualSheet = resolvedSheet === "M_OUT" ? "M_IN" : "M_OUT";
+            }
+        }
+
+        const finalTxnId = foundRow ? foundRow.id : txnId;
+        const finalSourceRow = foundRow ? (foundRow.sourceRow || foundRow.displayIndex) : sourceRow;
+
+        // 4. Update state to highlight target row and cell in UI
+        setFocusedErrorTarget({
+            txnId: finalTxnId,
+            sheet: actualSheet,
+            field: field || null,
+            sourceRow: finalSourceRow,
+            timestamp: now
+        });
+
+        if (foundRow) {
+            setSelectedTransaction(foundRow);
+            const matchId = foundRow.matchedTransactionId || foundRow.matchDetails?.counterpartId;
+            setCounterpartTransactionId(matchId || null);
+        }
+
+        // 5. Polling scroll loop: locates target row element, computes exact scrollTop, and verifies layout
+        let attempts = 0;
+        const maxAttempts = 35; // up to 3.5s to ensure tab layout & data rendering
+
+        if (scrollAnimationTimeoutRef.current) {
+            clearTimeout(scrollAnimationTimeoutRef.current);
+        }
+
+        const locateAndScrollRow = () => {
+            attempts++;
+
+            const targetContainer = actualSheet === "M_OUT" ? mOutScrollRef.current : mInScrollRef.current;
+            const siblingContainer = actualSheet === "M_OUT" ? mInScrollRef.current : mOutScrollRef.current;
+            const activeContainer = targetContainer || siblingContainer;
+
+            // Search row element by ID or data attributes
+            let rowEl = null;
+            if (finalTxnId) {
+                rowEl = document.getElementById(`txn-row-${finalTxnId}`) ||
+                        document.querySelector(`[data-sheet="${actualSheet}"][data-row-id="${finalTxnId}"]`) ||
+                        document.querySelector(`[data-row-id="${finalTxnId}"]`);
+            }
+            if (!rowEl && finalSourceRow) {
+                rowEl = document.querySelector(`[data-sheet="${actualSheet}"][data-source-row="${finalSourceRow}"]`) ||
+                        document.querySelector(`[data-sheet="${actualSheet}"][data-display-row="${finalSourceRow}"]`) ||
+                        document.getElementById(`txn-empty-${actualSheet}-${finalSourceRow}`) ||
+                        document.querySelector(`[data-source-row="${finalSourceRow}"]`) ||
+                        document.querySelector(`[data-display-row="${finalSourceRow}"]`);
+            }
+
+            const isReady = rowEl && activeContainer &&
+                            activeContainer.clientHeight > 0 &&
+                            (rowEl.offsetHeight > 0 || rowEl.getBoundingClientRect().height > 0);
+
+            if (isReady) {
+                const containerRect = activeContainer.getBoundingClientRect();
+                const rowRect = rowEl.getBoundingClientRect();
+                const rowContentTop = (rowRect.top - containerRect.top) + activeContainer.scrollTop;
+                const targetScrollTop = Math.max(
+                    0,
+                    Math.round(rowContentTop - (activeContainer.clientHeight / 2) + (rowRect.height / 2))
+                );
+
+                isSyncingScroll.current = true;
+
+                // Smooth scroll container directly to exact target position
+                activeContainer.scrollTo({
+                    top: targetScrollTop,
+                    behavior: "smooth"
+                });
+
+                if (viewMode === "split" && siblingContainer && siblingContainer !== activeContainer) {
+                    siblingContainer.scrollTo({
+                        top: targetScrollTop,
+                        behavior: "smooth"
+                    });
+                }
+
+                // Ensure the table workspace container is visible in page viewport
+                try {
+                    activeContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                } catch {
+                    // ignore
+                }
+
+                // Double check scroll position after 250ms to guarantee correct offset
+                setTimeout(() => {
+                    if (activeContainer) {
+                        const diff = Math.abs(activeContainer.scrollTop - targetScrollTop);
+                        if (diff > 120) {
+                            activeContainer.scrollTop = targetScrollTop;
+                            if (viewMode === "split" && siblingContainer) {
+                                siblingContainer.scrollTop = targetScrollTop;
+                            }
+                        }
+                    }
+                }, 300);
+
+                // Focus and pulse problematic cell input if applicable
+                if (field) {
+                    const cellInput = rowEl.querySelector(`input[data-field="${field}"]`) ||
+                                      rowEl.querySelector(`.col-${field === "commission" ? "comm" : field} input`);
+                    if (cellInput) {
+                        try {
+                            cellInput.focus({ preventScroll: true });
+                        } catch {
+                            cellInput.focus();
+                        }
+                        cellInput.classList.add("cell-focused-error-pulse");
+                        setTimeout(() => {
+                            cellInput.classList.remove("cell-focused-error-pulse");
+                        }, 5000);
+                    }
+                }
+
+                setTimeout(() => {
+                    isSyncingScroll.current = false;
+                }, 600);
+
+                // DISPLAY SUCCESS TOAST ONLY AFTER TARGET ROW IS LOCATED AND SCROLLED INTO VIEW
+                if (lastFocusRequestRef.current && !lastFocusRequestRef.current.notified) {
+                    lastFocusRequestRef.current.notified = true;
+                    const sheetName = actualSheet === "M_OUT" ? "M Out" : "M In";
+                    const rowLabel = finalSourceRow || foundRow?.displayIndex || "";
+                    const toastDesc = lastFocusRequestRef.current.description || description || `Located error transaction for immediate inspection.`;
+                    addToast({
+                        type: "info",
+                        title: `Navigated to ${sheetName} Row #${rowLabel}`,
+                        message: toastDesc
+                    });
+                }
+
+                // Clean up URL query parameters cleanly
+                setSearchParams((prev) => {
+                    const next = new URLSearchParams(prev);
+                    next.delete("focusTxnId");
+                    next.delete("focusRow");
+                    next.delete("focusSheet");
+                    next.delete("focusField");
+                    return next;
+                }, { replace: true });
+
+            } else if (attempts < maxAttempts) {
+                scrollAnimationTimeoutRef.current = setTimeout(locateAndScrollRow, 100);
+            }
+        };
+
+        scrollAnimationTimeoutRef.current = setTimeout(locateAndScrollRow, 80);
+
+        // Auto-clear pulsing focus after 15s
+        setTimeout(() => {
+            setFocusedErrorTarget((prev) => (prev?.timestamp === now ? null : prev));
+        }, 15000);
+    }, [mInRows, mOutRows, viewMode, addToast, setSearchParams]);
+
     useImperativeHandle(ref, () => ({
         hasUnsavedChanges: () => unsavedChanges.size > 0 || deletedRowIds.size > 0,
         savePendingChanges: async () => {
@@ -557,10 +786,30 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         },
         reloadWorkspace: async () => {
             return await loadWorkspaceData();
+        },
+        focusTransaction: (params) => {
+            doFocusTransaction(params);
         }
-    }), [unsavedChanges, deletedRowIds, handleSaveTransactions, loadWorkspaceData]);
+    }), [unsavedChanges, deletedRowIds, handleSaveTransactions, loadWorkspaceData, doFocusTransaction]);
 
-    // Filtered lists
+    // React to searchParams navigation (e.g. from Errors tab "Open" button)
+    useEffect(() => {
+        const focusTxnId = searchParams.get("focusTxnId");
+        const focusRow = searchParams.get("focusRow");
+        const focusSheet = searchParams.get("focusSheet");
+        const focusField = searchParams.get("focusField");
+
+        if ((focusTxnId || focusRow) && !loading && (mInRows.length > 0 || mOutRows.length > 0)) {
+            doFocusTransaction({
+                txnId: focusTxnId ? Number(focusTxnId) : null,
+                sourceRow: focusRow ? Number(focusRow) : null,
+                sheet: focusSheet || "M_IN",
+                field: focusField || null
+            });
+        }
+    }, [searchParams, loading, mInRows.length, mOutRows.length, doFocusTransaction]);
+
+    // Filtered lists (used for pre-reconciliation and fallback)
     const filteredMIn = useMemo(() => {
         return mInRows.filter((row) => {
             if (statusFilter !== "ALL" && row.status !== statusFilter) return false;
@@ -588,6 +837,101 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
             return true;
         });
     }, [mOutRows, statusFilter, searchQuery]);
+
+    // Check if reconciliation has executed for this batch
+    const isReconciled = useMemo(() => {
+        return mInRows.some((r) => r.matchedTransactionId || (r.status && r.status !== "PENDING")) ||
+               mOutRows.some((r) => r.matchedTransactionId || (r.status && r.status !== "PENDING"));
+    }, [mInRows, mOutRows]);
+
+    // Construct aligned slots: matching transactions paired on same row number, empty slots for missing
+    const alignedSlots = useMemo(() => {
+        if (!isReconciled) return null;
+        return buildAlignedSlots(mInRows, mOutRows);
+    }, [isReconciled, mInRows, mOutRows]);
+
+    // Filter aligned slots based on searchQuery and statusFilter
+    const filteredAlignedSlots = useMemo(() => {
+        if (!alignedSlots) return null;
+
+        const checkMatch = (row) => {
+            if (!row) return false;
+            if (statusFilter !== "ALL" && row.status !== statusFilter) return false;
+            if (searchQuery) {
+                const q = searchQuery.toLowerCase();
+                const fromMatch = row.fromBranchName?.toLowerCase().includes(q) || row.fromBranchCode?.toLowerCase().includes(q);
+                const toMatch = row.toBranchName?.toLowerCase().includes(q) || row.toBranchCode?.toLowerCase().includes(q);
+                const amtMatch = String(row.amount).includes(q);
+                return fromMatch || toMatch || amtMatch;
+            }
+            return true;
+        };
+
+        if (statusFilter === "ALL" && !searchQuery) {
+            return alignedSlots;
+        }
+
+        return alignedSlots.filter((slot) => {
+            return checkMatch(slot.mIn) || checkMatch(slot.mOut);
+        });
+    }, [alignedSlots, statusFilter, searchQuery]);
+
+    // Displayed rows for M In table (matching M Out slots receive empty placeholder)
+    const displayMIn = useMemo(() => {
+        if (!isReconciled || !filteredAlignedSlots) {
+            return filteredMIn;
+        }
+        return filteredAlignedSlots.map((slot, idx) => {
+            if (slot.mIn) {
+                return {
+                    ...slot.mIn,
+                    displayIndex: idx + 1
+                };
+            }
+            return {
+                id: `empty-in-${idx}`,
+                isEmpty: true,
+                sourceSheet: "M_IN",
+                displayIndex: idx + 1
+            };
+        });
+    }, [isReconciled, filteredAlignedSlots, filteredMIn]);
+
+    // Displayed rows for M Out table (matching M In slots receive empty placeholder)
+    const displayMOut = useMemo(() => {
+        if (!isReconciled || !filteredAlignedSlots) {
+            return filteredMOut;
+        }
+        return filteredAlignedSlots.map((slot, idx) => {
+            if (slot.mOut) {
+                return {
+                    ...slot.mOut,
+                    displayIndex: idx + 1
+                };
+            }
+            return {
+                id: `empty-out-${idx}`,
+                isEmpty: true,
+                sourceSheet: "M_OUT",
+                displayIndex: idx + 1
+            };
+        });
+    }, [isReconciled, filteredAlignedSlots, filteredMOut]);
+
+    // Synchronized scrolling between M In and M Out tables in split view
+
+    const handleSyncScroll = (source) => {
+        if (viewMode !== "split" || isSyncingScroll.current) return;
+        const sourceEl = source === "M_IN" ? mInScrollRef.current : mOutScrollRef.current;
+        const targetEl = source === "M_IN" ? mOutScrollRef.current : mInScrollRef.current;
+        if (!sourceEl || !targetEl) return;
+
+        isSyncingScroll.current = true;
+        targetEl.scrollTop = sourceEl.scrollTop;
+        requestAnimationFrame(() => {
+            isSyncingScroll.current = false;
+        });
+    };
 
     // Financial calculations
     const totals = useMemo(() => {
@@ -658,7 +1002,8 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         });
     };
 
-    const handleSelectAndScrollCounterpart = (row) => {
+    const handleSelectRow = (row) => {
+        if (!row || row.isEmpty) return;
         setSelectedTransaction(row);
 
         // Identify corresponding transaction in reciprocal sheet
@@ -677,7 +1022,9 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
 
         setCounterpartTransactionId(matchId || null);
 
-        if (matchId) {
+        // Only scroll if NOT aligned (in pre-reconciliation state).
+        // Post-reconciliation, matching rows appear on the exact same row index side-by-side.
+        if (!isReconciled && matchId) {
             setTimeout(() => {
                 const targetEl = document.getElementById(`txn-row-${matchId}`);
                 if (targetEl) {
@@ -880,16 +1227,22 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                         title="M In"
                         sheet="M_IN"
                         subtitle="Incoming funds into Branch"
-                        rows={filteredMIn}
+                        rows={displayMIn}
                         totalRowCount={mInRows.length}
                         branches={allAvailableBranches}
                         unsavedChanges={unsavedChanges}
                         hoveredCounterpartId={hoveredCounterpartId}
                         selectedTransactionId={selectedTransaction?.id}
                         counterpartTransactionId={counterpartTransactionId}
+                        focusedErrorTxnId={focusedErrorTarget?.txnId}
+                        focusedErrorSheet={focusedErrorTarget?.sheet}
+                        focusedErrorField={focusedErrorTarget?.field}
+                        focusedErrorSourceRow={focusedErrorTarget?.sourceRow}
                         allowDelete={viewMode === "m_in"}
+                        scrollRef={mInScrollRef}
+                        onScroll={() => handleSyncScroll("M_IN")}
                         onHoverCounterpart={setHoveredCounterpartId}
-                        onSelectRow={handleSelectAndScrollCounterpart}
+                        onSelectRow={handleSelectRow}
                         onInspectRow={(row) => setDetailModalTxn(row)}
                         onCellChange={handleCellChange}
                         onBranchBlur={handleBranchBlur}
@@ -917,16 +1270,22 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                         title="M Out"
                         sheet="M_OUT"
                         subtitle="Outgoing transfers from Branch"
-                        rows={filteredMOut}
+                        rows={displayMOut}
                         totalRowCount={mOutRows.length}
                         branches={allAvailableBranches}
                         unsavedChanges={unsavedChanges}
                         hoveredCounterpartId={hoveredCounterpartId}
                         selectedTransactionId={selectedTransaction?.id}
                         counterpartTransactionId={counterpartTransactionId}
+                        focusedErrorTxnId={focusedErrorTarget?.txnId}
+                        focusedErrorSheet={focusedErrorTarget?.sheet}
+                        focusedErrorField={focusedErrorTarget?.field}
+                        focusedErrorSourceRow={focusedErrorTarget?.sourceRow}
                         allowDelete={viewMode === "m_out"}
+                        scrollRef={mOutScrollRef}
+                        onScroll={() => handleSyncScroll("M_OUT")}
                         onHoverCounterpart={setHoveredCounterpartId}
-                        onSelectRow={handleSelectAndScrollCounterpart}
+                        onSelectRow={handleSelectRow}
                         onInspectRow={(row) => setDetailModalTxn(row)}
                         onCellChange={handleCellChange}
                         onBranchBlur={handleBranchBlur}
@@ -1085,7 +1444,13 @@ function SpreadsheetTable({
     hoveredCounterpartId,
     selectedTransactionId,
     counterpartTransactionId,
+    focusedErrorTxnId = null,
+    focusedErrorSheet = null,
+    focusedErrorField = null,
+    focusedErrorSourceRow = null,
     allowDelete = false,
+    scrollRef,
+    onScroll,
     onHoverCounterpart,
     onSelectRow,
     onInspectRow,
@@ -1157,6 +1522,14 @@ function SpreadsheetTable({
         const isHoverLinked = hoveredCounterpartId && (row.id === hoveredCounterpartId || row.matchedTransactionId === hoveredCounterpartId);
         const isSelected = selectedTransactionId === row.id;
         const isCounterpartActive = counterpartTransactionId && (row.id === counterpartTransactionId || row.matchedTransactionId === counterpartTransactionId);
+        const isFocusedError = Boolean(
+            ((focusedErrorTxnId && String(row.id) === String(focusedErrorTxnId)) ||
+             (focusedErrorSourceRow && (
+                 (!row.isEmpty && (Number(row.sourceRow) === Number(focusedErrorSourceRow) || Number(row.displayIndex) === Number(focusedErrorSourceRow))) ||
+                 (row.isEmpty && Number(row.displayIndex) === Number(focusedErrorSourceRow))
+             ))) &&
+            (!focusedErrorSheet || sheet === focusedErrorSheet)
+        );
 
         let statusClass = "status-row-default";
         if (row.status === "MATCHED") {
@@ -1168,7 +1541,9 @@ function SpreadsheetTable({
         }
 
         let linkClass = "";
-        if (isSelected) {
+        if (isFocusedError) {
+            linkClass = "row-error-focus-active";
+        } else if (isSelected) {
             linkClass = "row-selected-highlight";
         } else if (isCounterpartActive) {
             linkClass = "row-counterpart-highlight";
@@ -1364,7 +1739,10 @@ function SpreadsheetTable({
             )}
 
             {/* Scrollable Spreadsheet Table Container */}
+            {/* Scrollable Spreadsheet Table Container */}
             <div
+                ref={scrollRef}
+                onScroll={onScroll}
                 className="spreadsheet-scroll-area"
                 onPaste={(e) => onTablePaste(e, 0)}
                 tabIndex={0}
@@ -1394,6 +1772,64 @@ function SpreadsheetTable({
                     </thead>
                     <tbody>
                         {rows.map((row, idx) => {
+                            const rowNumber = row.displayIndex !== undefined ? row.displayIndex : idx + 1;
+
+                            // 1. Reserved Empty Space for Unmatched / Missing Counterpart
+                            if (row.isEmpty) {
+                                const isEmptyFocused = Boolean(
+                                    focusedErrorSourceRow &&
+                                    Number(rowNumber) === Number(focusedErrorSourceRow) &&
+                                    (!focusedErrorSheet || sheet === focusedErrorSheet)
+                                );
+                                return (
+                                    <tr
+                                        key={row.id || `${sheet}-empty-${idx}`}
+                                        id={`txn-empty-${sheet}-${rowNumber}`}
+                                        data-sheet={sheet}
+                                        data-display-row={rowNumber}
+                                        className={`spreadsheet-row row-empty-slot ${
+                                            isEmptyFocused ? "row-error-focus-active" : ""
+                                        }`}
+                                    >
+                                        {allowDelete && (
+                                            <td className="col-select cell-readonly text-center">
+                                                <span className="empty-cell-dash">—</span>
+                                            </td>
+                                        )}
+                                        {/* Row number stays identical on both sides */}
+                                        <td className="col-idx cell-readonly">
+                                            <div className="flex items-center justify-center text-slate-500 font-mono text-xs">
+                                                {rowNumber}
+                                            </div>
+                                        </td>
+                                        <td className="col-status cell-readonly text-center">
+                                            <span className="empty-slot-badge">—</span>
+                                        </td>
+                                        <td className="col-branch cell-empty-slot">
+                                            <div className="grid-cell-empty-placeholder">
+                                                <span>—</span>
+                                            </div>
+                                        </td>
+                                        <td className="col-branch cell-empty-slot">
+                                            <div className="grid-cell-empty-placeholder">
+                                                <span>—</span>
+                                            </div>
+                                        </td>
+                                        <td className="col-amount cell-empty-slot text-right">
+                                            <div className="grid-cell-empty-placeholder text-right">
+                                                <span>—</span>
+                                            </div>
+                                        </td>
+                                        <td className="col-comm cell-empty-slot text-right">
+                                            <div className="grid-cell-empty-placeholder text-right">
+                                                <span>—</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            }
+
+                            // 2. Normal Transaction Row
                             const branch1Prop = isMIn ? "toBranch" : "fromBranch";
                             const branch2Prop = isMIn ? "fromBranch" : "toBranch";
                             const branch1Field = isMIn ? "toBranchId" : "fromBranchId";
@@ -1424,10 +1860,23 @@ function SpreadsheetTable({
                             const isAmountError = errorFields.has("amount");
                             const isCommError = errorFields.has("commission");
 
+                            const isFocusedError = Boolean(
+                                ((focusedErrorTxnId && String(row.id) === String(focusedErrorTxnId)) ||
+                                 (focusedErrorSourceRow && (
+                                     Number(row.sourceRow) === Number(focusedErrorSourceRow) ||
+                                     Number(rowNumber) === Number(focusedErrorSourceRow)
+                                 ))) &&
+                                (!focusedErrorSheet || sheet === focusedErrorSheet)
+                            );
+
                             return (
                                 <tr
                                     key={row.id || `${sheet}-${idx}`}
                                     id={`txn-row-${row.id}`}
+                                    data-sheet={sheet}
+                                    data-row-id={row.id}
+                                    data-source-row={row.sourceRow}
+                                    data-display-row={rowNumber}
                                     className={`${getRowHighlightClass(row)} ${
                                         selectedRowIds.has(row.id) ? "row-batch-selected" : ""
                                     }`}
@@ -1439,7 +1888,7 @@ function SpreadsheetTable({
                                     onMouseLeave={() => onHoverCounterpart(null)}
                                     onClick={(e) => handleRowClick(e, row)}
                                     onDoubleClick={(e) => handleRowDoubleClick(e, row)}
-                                    title="Single-click to locate counterpart in other table • Double-click to open Transaction Details"
+                                    title="Single-click to highlight match • Double-click to open Transaction Details"
                                 >
                                     {/* Selection Checkbox (Only in Focus mode) */}
                                     {allowDelete && (
@@ -1451,7 +1900,7 @@ function SpreadsheetTable({
                                                 onChange={(e) => handleToggleRow(e, row.id)}
                                                 onClick={(e) => e.stopPropagation()}
                                                 onDoubleClick={(e) => e.stopPropagation()}
-                                                aria-label={`Select row ${idx + 1}`}
+                                                aria-label={`Select row ${rowNumber}`}
                                             />
                                         </td>
                                     )}
@@ -1460,7 +1909,7 @@ function SpreadsheetTable({
                                     <td className="col-idx cell-readonly">
                                         <div className="flex items-center justify-center gap-1">
                                             {isRowUnsaved && <span className="cell-unsaved-dot"></span>}
-                                            {idx + 1}
+                                            {rowNumber}
                                         </div>
                                     </td>
 
@@ -1473,17 +1922,22 @@ function SpreadsheetTable({
                                     <td className={`col-branch cell-editable ${isBranch1Error ? "cell-has-error" : ""}`}>
                                         <input
                                             type="text"
-                                            className="grid-cell-input font-medium uppercase"
+                                            data-field={branch1Prop}
+                                            className={`grid-cell-input font-medium uppercase ${
+                                                isFocusedError && (focusedErrorField === branch1Prop || focusedErrorField === "branch" || focusedErrorField === branch1Field)
+                                                    ? "cell-focused-error-pulse"
+                                                    : ""
+                                            }`}
                                             placeholder="Code"
                                             maxLength={10}
                                             value={branch1Value}
                                             onClick={(e) => e.stopPropagation()}
                                             onDoubleClick={(e) => e.stopPropagation()}
                                             onChange={(e) =>
-                                                onCellChange(sheet, idx, branch1Prop, e.target.value)
+                                                onCellChange(sheet, row.id, branch1Prop, e.target.value)
                                             }
                                             onBlur={(e) =>
-                                                onBranchBlur && onBranchBlur(sheet, idx, branch1Prop, e.target.value)
+                                                onBranchBlur && onBranchBlur(sheet, row.id, branch1Prop, e.target.value, rowNumber)
                                             }
                                             title={
                                                 isBranch1Error
@@ -1497,17 +1951,22 @@ function SpreadsheetTable({
                                     <td className={`col-branch cell-editable ${isBranch2Error ? "cell-has-error" : ""}`}>
                                         <input
                                             type="text"
-                                            className="grid-cell-input font-medium uppercase"
+                                            data-field={branch2Prop}
+                                            className={`grid-cell-input font-medium uppercase ${
+                                                isFocusedError && (focusedErrorField === branch2Prop || focusedErrorField === "branch" || focusedErrorField === branch2Field)
+                                                    ? "cell-focused-error-pulse"
+                                                    : ""
+                                            }`}
                                             placeholder="Code"
                                             maxLength={10}
                                             value={branch2Value}
                                             onClick={(e) => e.stopPropagation()}
                                             onDoubleClick={(e) => e.stopPropagation()}
                                             onChange={(e) =>
-                                                onCellChange(sheet, idx, branch2Prop, e.target.value)
+                                                onCellChange(sheet, row.id, branch2Prop, e.target.value)
                                             }
                                             onBlur={(e) =>
-                                                onBranchBlur && onBranchBlur(sheet, idx, branch2Prop, e.target.value)
+                                                onBranchBlur && onBranchBlur(sheet, row.id, branch2Prop, e.target.value, rowNumber)
                                             }
                                             title={
                                                 isBranch2Error
@@ -1521,15 +1980,20 @@ function SpreadsheetTable({
                                     <td className={`col-amount cell-editable ${isAmountError ? "cell-has-error" : ""}`}>
                                         <input
                                             type="number"
+                                            data-field="amount"
                                             min="0"
                                             step="100"
-                                            className="grid-cell-input text-right font-medium"
+                                            className={`grid-cell-input text-right font-medium ${
+                                                isFocusedError && focusedErrorField === "amount"
+                                                    ? "cell-focused-error-pulse"
+                                                    : ""
+                                            }`}
                                             placeholder="0"
                                             value={row.amount}
                                             onClick={(e) => e.stopPropagation()}
                                             onDoubleClick={(e) => e.stopPropagation()}
                                             onChange={(e) =>
-                                                onCellChange(sheet, idx, "amount", e.target.value)
+                                                onCellChange(sheet, row.id, "amount", e.target.value)
                                             }
                                             title={isAmountError ? row.errorReason || "Amount mismatch issue" : undefined}
                                         />
@@ -1539,15 +2003,20 @@ function SpreadsheetTable({
                                     <td className={`col-comm cell-editable ${isCommError ? "cell-has-error" : ""}`}>
                                         <input
                                             type="number"
+                                            data-field="commission"
                                             min="0"
                                             step="10"
-                                            className="grid-cell-input text-right"
+                                            className={`grid-cell-input text-right ${
+                                                isFocusedError && focusedErrorField === "commission"
+                                                    ? "cell-focused-error-pulse"
+                                                    : ""
+                                            }`}
                                             placeholder="0"
                                             value={row.commission}
                                             onClick={(e) => e.stopPropagation()}
                                             onDoubleClick={(e) => e.stopPropagation()}
                                             onChange={(e) =>
-                                                onCellChange(sheet, idx, "commission", e.target.value)
+                                                onCellChange(sheet, row.id, "commission", e.target.value)
                                             }
                                             title={isCommError ? row.errorReason || "Commission issue" : undefined}
                                         />
