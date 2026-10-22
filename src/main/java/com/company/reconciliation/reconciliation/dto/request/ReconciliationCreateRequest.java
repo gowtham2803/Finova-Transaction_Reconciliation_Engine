@@ -11,7 +11,7 @@ public class ReconciliationCreateRequest {
     @Size(max = 150, message = "Reconciliation name cannot exceed 150 characters")
     private String reconciliationName;
 
-    @NotNull(message = "Created by user ID is required")
+
     @Positive(message = "Created by user ID must be positive")
     private Long createdByUserId;
 

@@ -2836,6 +2836,38 @@ input[type="number"] {
     box-shadow: 0 0 0 1.5px #e11d48, 0 0 8px rgba(225, 29, 72, 0.22) !important;
 }
 
+/* Dual Commission Error Highlighting (Commission collected on both M In and M Out) */
+.cell-has-dual-comm-error {
+    background-color: rgba(168, 85, 247, 0.15) !important;
+    position: relative;
+}
+
+.cell-has-dual-comm-error .grid-cell-input,
+.cell-has-dual-comm-error .grid-cell-select {
+    border-color: #a855f7 !important;
+    background-color: rgba(168, 85, 247, 0.12) !important;
+    color: #c084fc !important;
+    font-weight: 600 !important;
+    box-shadow: 0 0 0 1.5px #a855f7, 0 0 10px rgba(168, 85, 247, 0.3) !important;
+}
+
+.cell-has-dual-comm-error .grid-cell-input:focus,
+.cell-has-dual-comm-error .grid-cell-select:focus {
+    box-shadow: 0 0 0 2px #a855f7, 0 0 14px rgba(168, 85, 247, 0.5) !important;
+}
+
+[data-theme="light"] .cell-has-dual-comm-error {
+    background-color: rgba(147, 51, 234, 0.08) !important;
+}
+
+[data-theme="light"] .cell-has-dual-comm-error .grid-cell-input,
+[data-theme="light"] .cell-has-dual-comm-error .grid-cell-select {
+    border-color: #9333ea !important;
+    background-color: rgba(147, 51, 234, 0.06) !important;
+    color: #7e22ce !important;
+    box-shadow: 0 0 0 1.5px #9333ea, 0 0 8px rgba(147, 51, 234, 0.22) !important;
+}
+
 /* Financial Summary Bar */
 .workspace-summary-bar {
     display: grid;

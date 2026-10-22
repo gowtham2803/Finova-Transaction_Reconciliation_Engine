@@ -261,16 +261,8 @@ async function enrichReconciliation(rec) {
         matchedCount,
         unmatchedCount,
         errorCount: openErrors,
-        createdByUserId: (() => {
-            const authUser = getActiveAuthUser();
-            const raw = rec.createdByUsername || meta?.createdByUserName || authUser?.username || "local-user";
-            return raw.replace(/^.*?\(|\)$/g, "").replace(/^.*?—\s*/i, "").trim() || "local-user";
-        })(),
-        createdByUsername: (() => {
-            const authUser = getActiveAuthUser();
-            const raw = rec.createdByUsername || meta?.createdByUserName || authUser?.username || "local-user";
-            return raw.replace(/^.*?\(|\)$/g, "").replace(/^.*?—\s*/i, "").trim() || "local-user";
-        })(),
+        createdByUserId: rec.createdByUserId || (meta?.createdByUserId ? Number(meta.createdByUserId) : null) || authUser?.id || 1,
+        createdByUsername: rec.createdByUsername || meta?.createdByUserName || authUser?.username || "local-user",
         status: rec.status === "RECONCILED" ? "COMPLETED" : rec.status,
         version: rec.version || 1,
         startedAt: rec.startedAt,
@@ -335,7 +327,8 @@ export async function createReconciliation(payload) {
         description: payload.description || "Created via YesCapital workspace",
         referenceBatch: payload.referenceBatch || `BATCH-${dateStr.replace(/-/g, "").slice(2)}-${newId}`,
         notes: payload.notes || "",
-        createdByUserName: currentUsername
+        createdByUserId: created?.createdByUserId || currentUserId,
+        createdByUserName: created?.createdByUsername || currentUsername
     });
 
     return enrichReconciliation(created);

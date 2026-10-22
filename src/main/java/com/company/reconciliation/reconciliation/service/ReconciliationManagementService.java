@@ -9,6 +9,7 @@ import com.company.reconciliation.reconciliation.error.repository.Reconciliation
 import com.company.reconciliation.reconciliation.error.resolution.repository.ErrorResolutionRepository;
 import com.company.reconciliation.reconciliation.repository.ReconciliationRepository;
 import com.company.reconciliation.reconciliation.result.repository.ReconciliationResultRepository;
+import com.company.reconciliation.security.UserContext;
 import com.company.reconciliation.transaction.repository.TransactionRepository;
 import com.company.reconciliation.user.entity.User;
 import com.company.reconciliation.user.repository.UserRepository;
@@ -57,7 +58,17 @@ public class ReconciliationManagementService {
     public ReconciliationResponse createReconciliation(
             ReconciliationCreateRequest request
     ) {
-        if (request == null || request.getCreatedByUserId() == null) {
+        if (request == null) {
+            throw new IllegalArgumentException(
+                    "Reconciliation request cannot be null"
+            );
+        }
+
+        Long userId = UserContext.getCurrentUser() != null
+                ? UserContext.getCurrentUser().getId()
+                : request.getCreatedByUserId();
+
+        if (userId == null) {
             throw new IllegalArgumentException(
                     "A valid creator user ID is required"
             );
@@ -77,7 +88,7 @@ public class ReconciliationManagementService {
             );
         }
 
-        Long userId = request.getCreatedByUserId();
+
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new EntityNotFoundException(
@@ -215,7 +226,9 @@ public class ReconciliationManagementService {
         String recInfo = reconciliation.getReconciliationName() != null
                 ? reconciliation.getReconciliationName() + " (" + reconciliation.getReconciliationCode() + ")"
                 : reconciliation.getReconciliationCode();
-        Long creatorUserId = reconciliation.getCreatedBy() != null ? reconciliation.getCreatedBy().getId() : null;
+        Long actorUserId = UserContext.getCurrentUser() != null
+                ? UserContext.getCurrentUser().getId()
+                : (reconciliation.getCreatedBy() != null ? reconciliation.getCreatedBy().getId() : 1L);
 
         // 1. Detach audit logs from this reconciliation and its transactions to preserve compliance history
         auditLogRepository.detachTransactionsByReconciliationId(id);
@@ -237,10 +250,10 @@ public class ReconciliationManagementService {
         reconciliationRepository.delete(reconciliation);
 
         // 7. Record an immutable audit log entry for the deletion itself
-        if (creatorUserId != null) {
+        if (actorUserId != null) {
             try {
                 auditService.recordAction(
-                        creatorUserId,
+                        actorUserId,
                         null,
                         null,
                         "RECONCILIATION_DELETED",

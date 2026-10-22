@@ -13,6 +13,7 @@ import com.company.reconciliation.reconciliation.error.resolution.repository.Err
 import com.company.reconciliation.reconciliation.repository.ReconciliationRepository;
 import com.company.reconciliation.reconciliation.result.ReconciliationResult;
 import com.company.reconciliation.reconciliation.result.repository.ReconciliationResultRepository;
+import com.company.reconciliation.security.UserContext;
 import com.company.reconciliation.transaction.dto.TransactionCreateRequest;
 import com.company.reconciliation.transaction.dto.TransactionFilterRequest;
 import com.company.reconciliation.transaction.dto.TransactionResponse;
@@ -114,7 +115,11 @@ public class TransactionServiceImpl implements TransactionService {
                 transactionRepository.save(transaction);
 
         // Use the reconciliation creator as the audit user
-        Long actorUserId = reconciliation.getCreatedBy().getId();
+        Long actorUserId = UserContext.getCurrentUser() != null
+                ? UserContext.getCurrentUser().getId()
+                : (reconciliation.getCreatedBy() != null && reconciliation.getCreatedBy().getId() != null
+                        ? reconciliation.getCreatedBy().getId()
+                        : 1L);
 
         // Record transaction creation
         auditService.recordAction(
@@ -256,7 +261,11 @@ public class TransactionServiceImpl implements TransactionService {
 
         // Use the reconciliation creator as the audit user
         Long actorUserId =
-                transaction.getReconciliation().getCreatedBy().getId();
+                UserContext.getCurrentUser() != null
+                        ? UserContext.getCurrentUser().getId()
+                        : (transaction.getReconciliation().getCreatedBy() != null && transaction.getReconciliation().getCreatedBy().getId() != null
+                                ? transaction.getReconciliation().getCreatedBy().getId()
+                                : 1L);
 
         // Update transaction fields
         transaction.setFromBranch(fromBranch);

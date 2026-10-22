@@ -254,12 +254,12 @@ export default function ReconciliationDetails() {
             sheet = "M_IN";
         }
 
-        // 2. Identify target transaction ID and source row
+        // 2. Identify target transaction ID and display row
         const targetTxnId = err.targetTxnId || (sheet === "M_OUT"
             ? (err.mOutTransaction?.id || err.transactionId)
             : (err.mInTransaction?.id || err.transactionId));
 
-        const targetSourceRow = err.targetRow || err.rowNumber || (sheet === "M_OUT"
+        const targetDisplayRow = err.rowNumber ?? err.targetRow ?? (sheet === "M_OUT"
             ? (err.mOutRow || err.mInRow)
             : (err.mInRow || err.mOutRow));
 
@@ -275,29 +275,27 @@ export default function ReconciliationDetails() {
             }
         }
 
-        // 4. Update URL params to navigate to Transactions tab
-        setSearchParams({
-            tab: "transactions",
-            focusTxnId: targetTxnId || "",
-            focusSheet: sheet,
-            focusField: field || "",
-            focusRow: targetSourceRow || ""
-        });
+        // 4. Update URL params to navigate to Transactions tab cleanly
+        setSearchParams({ tab: "transactions" });
 
         // 5. Trigger focus on workspace
-        setTimeout(() => {
+        const triggerFocus = () => {
             if (workspaceRef.current?.focusTransaction) {
                 workspaceRef.current.focusTransaction({
-                    txnId: targetTxnId,
+                    txnId: targetTxnId ? Number(targetTxnId) : null,
                     sheet,
                     field,
-                    sourceRow: targetSourceRow,
+                    displayRow: targetDisplayRow ? Number(targetDisplayRow) : null,
+                    sourceRow: targetDisplayRow ? Number(targetDisplayRow) : null,
                     errorType: err.errorType,
                     description: err.description,
                     force: true
                 });
             }
-        }, 80);
+        };
+
+        setTimeout(triggerFocus, 60);
+        setTimeout(triggerFocus, 200);
     };
 
     const handleExecuteRun = async () => {

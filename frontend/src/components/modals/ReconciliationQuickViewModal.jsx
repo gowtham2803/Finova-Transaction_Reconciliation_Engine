@@ -1,8 +1,6 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
     X,
-    ArrowRight,
     Calendar,
     User,
     Tag,
@@ -15,11 +13,14 @@ import {
     Info,
     ShieldAlert,
     CheckCircle,
-    Trash2
+    Trash2,
+    Download,
+    Loader2
 } from "lucide-react";
 import ConfirmDeleteReconciliationModal from "./ConfirmDeleteReconciliationModal";
 import { deleteReconciliation } from "../../services/mockApi";
 import { useApp } from "../../context/AppContext";
+import { exportReconciliationToExcel } from "../../utils/excelExporter";
 
 export default function ReconciliationQuickViewModal({
     isOpen,
@@ -27,16 +28,31 @@ export default function ReconciliationQuickViewModal({
     reconciliation,
     onDeleteSuccess
 }) {
-    const navigate = useNavigate();
     const { addToast, triggerRefresh } = useApp();
     const [isConfirmOpen, setIsConfirmOpen] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     if (!isOpen || !reconciliation) return null;
 
-    const handleOpenWorkspace = () => {
-        onClose();
-        navigate(`/reconciliations/${reconciliation.id}?tab=transactions`);
+    const handleExport = async () => {
+        try {
+            setIsExporting(true);
+            const fileName = await exportReconciliationToExcel(reconciliation);
+            addToast({
+                type: "success",
+                title: "Excel Export Complete",
+                message: `Transactions exported as "${fileName}".`
+            });
+        } catch (err) {
+            addToast({
+                type: "error",
+                title: "Export Failed",
+                message: err.message || "Failed to export transactions to Excel."
+            });
+        } finally {
+            setIsExporting(false);
+        }
     };
 
     const handleDeletePermanently = async () => {
@@ -254,7 +270,7 @@ export default function ReconciliationQuickViewModal({
                         type="button"
                         className="secondary-button"
                         onClick={onClose}
-                        disabled={isDeleting}
+                        disabled={isDeleting || isExporting}
                     >
                         Close
                     </button>
@@ -262,7 +278,7 @@ export default function ReconciliationQuickViewModal({
                         type="button"
                         className="danger-button flex items-center gap-2"
                         onClick={() => setIsConfirmOpen(true)}
-                        disabled={isDeleting}
+                        disabled={isDeleting || isExporting}
                         title="Delete Reconciliation"
                     >
                         <Trash2 size={15} />
@@ -271,11 +287,21 @@ export default function ReconciliationQuickViewModal({
                     <button
                         type="button"
                         className="primary-button flex items-center gap-2"
-                        onClick={handleOpenWorkspace}
-                        disabled={isDeleting}
+                        onClick={handleExport}
+                        disabled={isDeleting || isExporting}
+                        title="Export transactions to Excel (.xlsx)"
                     >
-                        <span>Open Full Workspace</span>
-                        <ArrowRight size={15} />
+                        {isExporting ? (
+                            <>
+                                <Loader2 size={15} className="animate-spin" />
+                                <span>Exporting...</span>
+                            </>
+                        ) : (
+                            <>
+                                <Download size={15} />
+                                <span>Export</span>
+                            </>
+                        )}
                     </button>
                 </div>
             </div>

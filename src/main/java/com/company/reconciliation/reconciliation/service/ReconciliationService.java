@@ -13,6 +13,7 @@ import com.company.reconciliation.reconciliation.result.ReconciliationResult;
 import com.company.reconciliation.reconciliation.result.repository.ReconciliationResultRepository;
 import com.company.reconciliation.reconciliation.dto.response.ReconciliationErrorResponse;
 import com.company.reconciliation.reconciliation.dto.response.ReconciliationResultResponse;
+import com.company.reconciliation.security.UserContext;
 import com.company.reconciliation.transaction.entity.Transaction;
 import com.company.reconciliation.transaction.repository.TransactionRepository;
 import com.company.reconciliation.user.entity.User;
@@ -209,16 +210,20 @@ public class ReconciliationService {
         reconciliationRepository.save(reconciliation);
 
         // Record audit only after successful reconciliation processing.
-        User createdBy = reconciliation.getCreatedBy();
+        Long actorUserId = UserContext.getCurrentUser() != null
+                ? UserContext.getCurrentUser().getId()
+                : (reconciliation.getCreatedBy() != null && reconciliation.getCreatedBy().getId() != null
+                        ? reconciliation.getCreatedBy().getId()
+                        : 1L);
 
-        if (createdBy == null || createdBy.getId() == null) {
+        if (actorUserId == null) {
             throw new IllegalStateException(
-                    "Reconciliation creator is required for audit logging"
+                    "User identity is required for audit logging"
             );
         }
 
         auditService.recordAction(
-                createdBy.getId(),
+                actorUserId,
                 reconciliation.getId(),
                 null,
                 isRerun
@@ -366,16 +371,20 @@ public class ReconciliationService {
                 .getReconciliationResult()
                 .getReconciliation();
 
-        User createdBy = reconciliation.getCreatedBy();
+        Long actorUserId = UserContext.getCurrentUser() != null
+                ? UserContext.getCurrentUser().getId()
+                : (reconciliation.getCreatedBy() != null && reconciliation.getCreatedBy().getId() != null
+                        ? reconciliation.getCreatedBy().getId()
+                        : 1L);
 
-        if (createdBy == null || createdBy.getId() == null) {
+        if (actorUserId == null) {
             throw new IllegalStateException(
-                    "Reconciliation creator is required for audit logging"
+                    "User identity is required for audit logging"
             );
         }
 
         auditService.recordAction(
-                createdBy.getId(),
+                actorUserId,
                 reconciliation.getId(),
                 null,
                 "ERROR_RESOLVED",

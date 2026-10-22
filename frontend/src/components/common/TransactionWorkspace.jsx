@@ -39,6 +39,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
     const isSyncingScroll = useRef(false);
     const lastFocusRequestRef = useRef(null);
     const scrollAnimationTimeoutRef = useRef(null);
+    const alignedSlotsRef = useRef(null);
 
     const [mInRows, setMInRows] = useState([]);
     const [mOutRows, setMOutRows] = useState([]);
@@ -574,9 +575,137 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         }
     };
 
-    const doFocusTransaction = useCallback(({ txnId, sheet, field, sourceRow, errorType, description, force }) => {
-        const focusKey = `${txnId || ""}_${sheet || ""}_${sourceRow || ""}_${field || ""}`;
+    // Filtered lists (used for pre-reconciliation and fallback)
+    const filteredMIn = useMemo(() => {
+        return mInRows.filter((row) => {
+            if (statusFilter !== "ALL" && row.status !== statusFilter) return false;
+            if (searchQuery) {
+                const q = searchQuery.toLowerCase();
+                const fromMatch = row.fromBranchName?.toLowerCase().includes(q) || row.fromBranchCode?.toLowerCase().includes(q);
+                const toMatch = row.toBranchName?.toLowerCase().includes(q) || row.toBranchCode?.toLowerCase().includes(q);
+                const amtMatch = String(row.amount).includes(q);
+                return fromMatch || toMatch || amtMatch;
+            }
+            return true;
+        });
+    }, [mInRows, statusFilter, searchQuery]);
+
+    const filteredMOut = useMemo(() => {
+        return mOutRows.filter((row) => {
+            if (statusFilter !== "ALL" && row.status !== statusFilter) return false;
+            if (searchQuery) {
+                const q = searchQuery.toLowerCase();
+                const fromMatch = row.fromBranchName?.toLowerCase().includes(q) || row.fromBranchCode?.toLowerCase().includes(q);
+                const toMatch = row.toBranchName?.toLowerCase().includes(q) || row.toBranchCode?.toLowerCase().includes(q);
+                const amtMatch = String(row.amount).includes(q);
+                return fromMatch || toMatch || amtMatch;
+            }
+            return true;
+        });
+    }, [mOutRows, statusFilter, searchQuery]);
+
+    // Check if reconciliation has executed for this batch
+    const isReconciled = useMemo(() => {
+        return mInRows.some((r) => r.matchedTransactionId || (r.status && r.status !== "PENDING")) ||
+               mOutRows.some((r) => r.matchedTransactionId || (r.status && r.status !== "PENDING"));
+    }, [mInRows, mOutRows]);
+
+    // Construct aligned slots: matching transactions paired on same row number, empty slots for missing
+    const alignedSlots = useMemo(() => {
+        if (!isReconciled) return null;
+        return buildAlignedSlots(mInRows, mOutRows);
+    }, [isReconciled, mInRows, mOutRows]);
+
+    alignedSlotsRef.current = alignedSlots;
+
+    // Filter aligned slots based on searchQuery and statusFilter
+    const filteredAlignedSlots = useMemo(() => {
+        if (!alignedSlots) return null;
+
+        const checkMatch = (row) => {
+            if (!row) return false;
+            if (statusFilter !== "ALL" && row.status !== statusFilter) return false;
+            if (searchQuery) {
+                const q = searchQuery.toLowerCase();
+                const fromMatch = row.fromBranchName?.toLowerCase().includes(q) || row.fromBranchCode?.toLowerCase().includes(q);
+                const toMatch = row.toBranchName?.toLowerCase().includes(q) || row.toBranchCode?.toLowerCase().includes(q);
+                const amtMatch = String(row.amount).includes(q);
+                return fromMatch || toMatch || amtMatch;
+            }
+            return true;
+        };
+
+        if (statusFilter === "ALL" && !searchQuery) {
+            return alignedSlots;
+        }
+
+        return alignedSlots.filter((slot) => {
+            return checkMatch(slot.mIn) || checkMatch(slot.mOut);
+        });
+    }, [alignedSlots, statusFilter, searchQuery]);
+
+    // Displayed rows for M In table (matching M Out slots receive empty placeholder)
+    const displayMIn = useMemo(() => {
+        if (!isReconciled || !filteredAlignedSlots) {
+            return filteredMIn;
+        }
+        return filteredAlignedSlots.map((slot, idx) => {
+            if (slot.mIn) {
+                return {
+                    ...slot.mIn,
+                    counterpartRow: slot.mOut,
+                    displayIndex: idx + 1
+                };
+            }
+            return {
+                id: `empty-in-${idx}`,
+                isEmpty: true,
+                sourceSheet: "M_IN",
+                displayIndex: idx + 1
+            };
+        });
+    }, [isReconciled, filteredAlignedSlots, filteredMIn]);
+
+    // Displayed rows for M Out table (matching M In slots receive empty placeholder)
+    const displayMOut = useMemo(() => {
+        if (!isReconciled || !filteredAlignedSlots) {
+            return filteredMOut;
+        }
+        return filteredAlignedSlots.map((slot, idx) => {
+            if (slot.mOut) {
+                return {
+                    ...slot.mOut,
+                    counterpartRow: slot.mIn,
+                    displayIndex: idx + 1
+                };
+            }
+            return {
+                id: `empty-out-${idx}`,
+                isEmpty: true,
+                sourceSheet: "M_OUT",
+                displayIndex: idx + 1
+            };
+        });
+    }, [isReconciled, filteredAlignedSlots, filteredMOut]);
+
+    // Financial calculations
+    const totals = useMemo(() => {
+        const inAmt = mInRows.reduce((acc, r) => acc + (Number(r.amount) || 0), 0);
+        const inComm = mInRows.reduce((acc, r) => acc + (Number(r.commission) || 0), 0);
+        const outAmt = mOutRows.reduce((acc, r) => acc + (Number(r.amount) || 0), 0);
+        const outComm = mOutRows.reduce((acc, r) => acc + (Number(r.commission) || 0), 0);
+        return {
+            inAmt,
+            inComm,
+            outAmt,
+            outComm,
+            variance: Math.abs(inAmt - outAmt)
+        };
+    }, [mInRows, mOutRows]);
+
+    const doFocusTransaction = useCallback(({ txnId, sheet, field, sourceRow, displayRow, errorType, description, force }) => {
         const now = Date.now();
+        const focusKey = `${txnId || ""}_${displayRow || sourceRow || ""}_${sheet || ""}_${field || ""}`;
 
         // Prevent duplicate trigger within 800ms unless explicitly forced
         if (!force && lastFocusRequestRef.current && lastFocusRequestRef.current.key === focusKey && (now - lastFocusRequestRef.current.time) < 800) {
@@ -609,39 +738,60 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         const targetPool = resolvedSheet === "M_OUT" ? mOutRows : mInRows;
         const fallbackPool = resolvedSheet === "M_OUT" ? mInRows : mOutRows;
 
-        let foundRow = targetPool.find((r) =>
-            (txnId && (String(r.id) === String(txnId) || Number(r.id) === Number(txnId))) ||
-            (sourceRow && (Number(r.sourceRow) === Number(sourceRow) || Number(r.displayIndex) === Number(sourceRow)))
-        );
-
+        let foundRow = null;
         let actualSheet = resolvedSheet;
-        if (!foundRow) {
-            foundRow = fallbackPool.find((r) =>
-                (txnId && (String(r.id) === String(txnId) || Number(r.id) === Number(txnId))) ||
-                (sourceRow && (Number(r.sourceRow) === Number(sourceRow) || Number(r.displayIndex) === Number(sourceRow)))
-            );
-            if (foundRow) {
-                actualSheet = resolvedSheet === "M_OUT" ? "M_IN" : "M_OUT";
+
+        // Priority 1: Match strictly by unique transaction ID
+        if (txnId !== null && txnId !== undefined) {
+            foundRow = targetPool.find((r) => String(r.id) === String(txnId) || Number(r.id) === Number(txnId));
+            if (!foundRow) {
+                foundRow = fallbackPool.find((r) => String(r.id) === String(txnId) || Number(r.id) === Number(txnId));
+                if (foundRow) {
+                    actualSheet = resolvedSheet === "M_OUT" ? "M_IN" : "M_OUT";
+                }
             }
         }
 
-        const finalTxnId = foundRow ? foundRow.id : txnId;
-        const finalSourceRow = foundRow ? (foundRow.sourceRow || foundRow.displayIndex) : sourceRow;
+        // Priority 2: Only if txnId is absent or not found, match by displayRow
+        if (!foundRow && (displayRow || sourceRow)) {
+            const targetRowIndex = Number(displayRow || sourceRow);
+            foundRow = targetPool.find((r) => Number(r.displayIndex) === targetRowIndex || Number(r.sourceRow) === targetRowIndex);
+            if (!foundRow) {
+                foundRow = fallbackPool.find((r) => Number(r.displayIndex) === targetRowIndex || Number(r.sourceRow) === targetRowIndex);
+                if (foundRow) {
+                    actualSheet = resolvedSheet === "M_OUT" ? "M_IN" : "M_OUT";
+                }
+            }
+        }
+
+        const finalTxnId = foundRow ? foundRow.id : (txnId ? Number(txnId) : null);
+        let finalDisplayRow = displayRow ? Number(displayRow) : (foundRow?.displayIndex || (sourceRow ? Number(sourceRow) : null));
+
+        if (!finalDisplayRow && alignedSlots && finalTxnId) {
+            const slotIdx = alignedSlots.findIndex((s) =>
+                (s.mIn && (String(s.mIn.id) === String(finalTxnId) || Number(s.mIn.id) === Number(finalTxnId))) ||
+                (s.mOut && (String(s.mOut.id) === String(finalTxnId) || Number(s.mOut.id) === Number(finalTxnId)))
+            );
+            if (slotIdx !== -1) {
+                finalDisplayRow = slotIdx + 1;
+            }
+        }
 
         // 4. Update state to highlight target row and cell in UI
         setFocusedErrorTarget({
             txnId: finalTxnId,
             sheet: actualSheet,
             field: field || null,
-            sourceRow: finalSourceRow,
+            displayRow: finalDisplayRow,
+            sourceRow: finalDisplayRow,
             timestamp: now
         });
 
-        if (foundRow) {
-            setSelectedTransaction(foundRow);
-            const matchId = foundRow.matchedTransactionId || foundRow.matchDetails?.counterpartId;
-            setCounterpartTransactionId(matchId || null);
-        }
+        // Explicitly clear selectedTransaction and counterpart highlighting
+        // so that ONLY the specific error row is highlighted
+        setSelectedTransaction(null);
+        setCounterpartTransactionId(null);
+        setHoveredCounterpartId(null);
 
         // 5. Polling scroll loop: locates target row element, computes exact scrollTop, and verifies layout
         let attempts = 0;
@@ -665,12 +815,10 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                         document.querySelector(`[data-sheet="${actualSheet}"][data-row-id="${finalTxnId}"]`) ||
                         document.querySelector(`[data-row-id="${finalTxnId}"]`);
             }
-            if (!rowEl && finalSourceRow) {
-                rowEl = document.querySelector(`[data-sheet="${actualSheet}"][data-source-row="${finalSourceRow}"]`) ||
-                        document.querySelector(`[data-sheet="${actualSheet}"][data-display-row="${finalSourceRow}"]`) ||
-                        document.getElementById(`txn-empty-${actualSheet}-${finalSourceRow}`) ||
-                        document.querySelector(`[data-source-row="${finalSourceRow}"]`) ||
-                        document.querySelector(`[data-display-row="${finalSourceRow}"]`);
+            if (!rowEl && finalDisplayRow) {
+                rowEl = document.querySelector(`[data-sheet="${actualSheet}"][data-display-row="${finalDisplayRow}"]`) ||
+                        document.getElementById(`txn-empty-${actualSheet}-${finalDisplayRow}`) ||
+                        document.querySelector(`[data-display-row="${finalDisplayRow}"]`);
             }
 
             const isReady = rowEl && activeContainer &&
@@ -746,7 +894,8 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                 if (lastFocusRequestRef.current && !lastFocusRequestRef.current.notified) {
                     lastFocusRequestRef.current.notified = true;
                     const sheetName = actualSheet === "M_OUT" ? "M Out" : "M In";
-                    const rowLabel = finalSourceRow || foundRow?.displayIndex || "";
+                    const elDisplayRow = rowEl.getAttribute("data-display-row");
+                    const rowLabel = elDisplayRow || finalDisplayRow || foundRow?.displayIndex || "";
                     const toastDesc = lastFocusRequestRef.current.description || description || `Located error transaction for immediate inspection.`;
                     addToast({
                         type: "info",
@@ -755,15 +904,23 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                     });
                 }
 
-                // Clean up URL query parameters cleanly
-                setSearchParams((prev) => {
-                    const next = new URLSearchParams(prev);
-                    next.delete("focusTxnId");
-                    next.delete("focusRow");
-                    next.delete("focusSheet");
-                    next.delete("focusField");
-                    return next;
-                }, { replace: true });
+                // Clean up URL query parameters cleanly ONLY IF focus parameters exist
+                const hasFocusParams = searchParams.get("focusTxnId") ||
+                                       searchParams.get("focusRow") ||
+                                       searchParams.get("focusSheet") ||
+                                       searchParams.get("focusField");
+
+                if (hasFocusParams) {
+                    setSearchParams((prev) => {
+                        const next = new URLSearchParams(prev);
+                        next.set("tab", "transactions");
+                        next.delete("focusTxnId");
+                        next.delete("focusRow");
+                        next.delete("focusSheet");
+                        next.delete("focusField");
+                        return next;
+                    }, { replace: true });
+                }
 
             } else if (attempts < maxAttempts) {
                 scrollAnimationTimeoutRef.current = setTimeout(locateAndScrollRow, 100);
@@ -776,7 +933,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         setTimeout(() => {
             setFocusedErrorTarget((prev) => (prev?.timestamp === now ? null : prev));
         }, 15000);
-    }, [mInRows, mOutRows, viewMode, addToast, setSearchParams]);
+    }, [mInRows, mOutRows, alignedSlots, viewMode, addToast, setSearchParams, searchParams]);
 
     useImperativeHandle(ref, () => ({
         hasUnsavedChanges: () => unsavedChanges.size > 0 || deletedRowIds.size > 0,
@@ -802,6 +959,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         if ((focusTxnId || focusRow) && !loading && (mInRows.length > 0 || mOutRows.length > 0)) {
             doFocusTransaction({
                 txnId: focusTxnId ? Number(focusTxnId) : null,
+                displayRow: focusRow ? Number(focusRow) : null,
                 sourceRow: focusRow ? Number(focusRow) : null,
                 sheet: focusSheet || "M_IN",
                 field: focusField || null
@@ -809,117 +967,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         }
     }, [searchParams, loading, mInRows.length, mOutRows.length, doFocusTransaction]);
 
-    // Filtered lists (used for pre-reconciliation and fallback)
-    const filteredMIn = useMemo(() => {
-        return mInRows.filter((row) => {
-            if (statusFilter !== "ALL" && row.status !== statusFilter) return false;
-            if (searchQuery) {
-                const q = searchQuery.toLowerCase();
-                const fromMatch = row.fromBranchName?.toLowerCase().includes(q) || row.fromBranchCode?.toLowerCase().includes(q);
-                const toMatch = row.toBranchName?.toLowerCase().includes(q) || row.toBranchCode?.toLowerCase().includes(q);
-                const amtMatch = String(row.amount).includes(q);
-                return fromMatch || toMatch || amtMatch;
-            }
-            return true;
-        });
-    }, [mInRows, statusFilter, searchQuery]);
-
-    const filteredMOut = useMemo(() => {
-        return mOutRows.filter((row) => {
-            if (statusFilter !== "ALL" && row.status !== statusFilter) return false;
-            if (searchQuery) {
-                const q = searchQuery.toLowerCase();
-                const fromMatch = row.fromBranchName?.toLowerCase().includes(q) || row.fromBranchCode?.toLowerCase().includes(q);
-                const toMatch = row.toBranchName?.toLowerCase().includes(q) || row.toBranchCode?.toLowerCase().includes(q);
-                const amtMatch = String(row.amount).includes(q);
-                return fromMatch || toMatch || amtMatch;
-            }
-            return true;
-        });
-    }, [mOutRows, statusFilter, searchQuery]);
-
-    // Check if reconciliation has executed for this batch
-    const isReconciled = useMemo(() => {
-        return mInRows.some((r) => r.matchedTransactionId || (r.status && r.status !== "PENDING")) ||
-               mOutRows.some((r) => r.matchedTransactionId || (r.status && r.status !== "PENDING"));
-    }, [mInRows, mOutRows]);
-
-    // Construct aligned slots: matching transactions paired on same row number, empty slots for missing
-    const alignedSlots = useMemo(() => {
-        if (!isReconciled) return null;
-        return buildAlignedSlots(mInRows, mOutRows);
-    }, [isReconciled, mInRows, mOutRows]);
-
-    // Filter aligned slots based on searchQuery and statusFilter
-    const filteredAlignedSlots = useMemo(() => {
-        if (!alignedSlots) return null;
-
-        const checkMatch = (row) => {
-            if (!row) return false;
-            if (statusFilter !== "ALL" && row.status !== statusFilter) return false;
-            if (searchQuery) {
-                const q = searchQuery.toLowerCase();
-                const fromMatch = row.fromBranchName?.toLowerCase().includes(q) || row.fromBranchCode?.toLowerCase().includes(q);
-                const toMatch = row.toBranchName?.toLowerCase().includes(q) || row.toBranchCode?.toLowerCase().includes(q);
-                const amtMatch = String(row.amount).includes(q);
-                return fromMatch || toMatch || amtMatch;
-            }
-            return true;
-        };
-
-        if (statusFilter === "ALL" && !searchQuery) {
-            return alignedSlots;
-        }
-
-        return alignedSlots.filter((slot) => {
-            return checkMatch(slot.mIn) || checkMatch(slot.mOut);
-        });
-    }, [alignedSlots, statusFilter, searchQuery]);
-
-    // Displayed rows for M In table (matching M Out slots receive empty placeholder)
-    const displayMIn = useMemo(() => {
-        if (!isReconciled || !filteredAlignedSlots) {
-            return filteredMIn;
-        }
-        return filteredAlignedSlots.map((slot, idx) => {
-            if (slot.mIn) {
-                return {
-                    ...slot.mIn,
-                    displayIndex: idx + 1
-                };
-            }
-            return {
-                id: `empty-in-${idx}`,
-                isEmpty: true,
-                sourceSheet: "M_IN",
-                displayIndex: idx + 1
-            };
-        });
-    }, [isReconciled, filteredAlignedSlots, filteredMIn]);
-
-    // Displayed rows for M Out table (matching M In slots receive empty placeholder)
-    const displayMOut = useMemo(() => {
-        if (!isReconciled || !filteredAlignedSlots) {
-            return filteredMOut;
-        }
-        return filteredAlignedSlots.map((slot, idx) => {
-            if (slot.mOut) {
-                return {
-                    ...slot.mOut,
-                    displayIndex: idx + 1
-                };
-            }
-            return {
-                id: `empty-out-${idx}`,
-                isEmpty: true,
-                sourceSheet: "M_OUT",
-                displayIndex: idx + 1
-            };
-        });
-    }, [isReconciled, filteredAlignedSlots, filteredMOut]);
-
     // Synchronized scrolling between M In and M Out tables in split view
-
     const handleSyncScroll = (source) => {
         if (viewMode !== "split" || isSyncingScroll.current) return;
         const sourceEl = source === "M_IN" ? mInScrollRef.current : mOutScrollRef.current;
@@ -932,21 +980,6 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
             isSyncingScroll.current = false;
         });
     };
-
-    // Financial calculations
-    const totals = useMemo(() => {
-        const inAmt = mInRows.reduce((acc, r) => acc + (Number(r.amount) || 0), 0);
-        const inComm = mInRows.reduce((acc, r) => acc + (Number(r.commission) || 0), 0);
-        const outAmt = mOutRows.reduce((acc, r) => acc + (Number(r.amount) || 0), 0);
-        const outComm = mOutRows.reduce((acc, r) => acc + (Number(r.commission) || 0), 0);
-        return {
-            inAmt,
-            inComm,
-            outAmt,
-            outComm,
-            variance: Math.abs(inAmt - outAmt)
-        };
-    }, [mInRows, mOutRows]);
 
     // Filter clearing helper
     const handleClearFilters = () => {
@@ -1237,6 +1270,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                         focusedErrorTxnId={focusedErrorTarget?.txnId}
                         focusedErrorSheet={focusedErrorTarget?.sheet}
                         focusedErrorField={focusedErrorTarget?.field}
+                        focusedErrorDisplayRow={focusedErrorTarget?.displayRow}
                         focusedErrorSourceRow={focusedErrorTarget?.sourceRow}
                         allowDelete={viewMode === "m_in"}
                         scrollRef={mInScrollRef}
@@ -1280,6 +1314,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                         focusedErrorTxnId={focusedErrorTarget?.txnId}
                         focusedErrorSheet={focusedErrorTarget?.sheet}
                         focusedErrorField={focusedErrorTarget?.field}
+                        focusedErrorDisplayRow={focusedErrorTarget?.displayRow}
                         focusedErrorSourceRow={focusedErrorTarget?.sourceRow}
                         allowDelete={viewMode === "m_out"}
                         scrollRef={mOutScrollRef}
@@ -1447,6 +1482,7 @@ function SpreadsheetTable({
     focusedErrorTxnId = null,
     focusedErrorSheet = null,
     focusedErrorField = null,
+    focusedErrorDisplayRow = null,
     focusedErrorSourceRow = null,
     allowDelete = false,
     scrollRef,
@@ -1522,13 +1558,18 @@ function SpreadsheetTable({
         const isHoverLinked = hoveredCounterpartId && (row.id === hoveredCounterpartId || row.matchedTransactionId === hoveredCounterpartId);
         const isSelected = selectedTransactionId === row.id;
         const isCounterpartActive = counterpartTransactionId && (row.id === counterpartTransactionId || row.matchedTransactionId === counterpartTransactionId);
+
+        const targetDisplayNum = focusedErrorDisplayRow || focusedErrorSourceRow || null;
+        const rowDisplayNum = row.displayIndex !== undefined ? row.displayIndex : null;
+        const isTargetSheet = !focusedErrorSheet || sheet === focusedErrorSheet;
+
         const isFocusedError = Boolean(
-            ((focusedErrorTxnId && String(row.id) === String(focusedErrorTxnId)) ||
-             (focusedErrorSourceRow && (
-                 (!row.isEmpty && (Number(row.sourceRow) === Number(focusedErrorSourceRow) || Number(row.displayIndex) === Number(focusedErrorSourceRow))) ||
-                 (row.isEmpty && Number(row.displayIndex) === Number(focusedErrorSourceRow))
-             ))) &&
-            (!focusedErrorSheet || sheet === focusedErrorSheet)
+            isTargetSheet &&
+            (
+                focusedErrorTxnId
+                    ? (!row.isEmpty && (String(row.id) === String(focusedErrorTxnId) || Number(row.id) === Number(focusedErrorTxnId)))
+                    : (targetDisplayNum && rowDisplayNum !== null && Number(rowDisplayNum) === Number(targetDisplayNum))
+            )
         );
 
         let statusClass = "status-row-default";
@@ -1602,7 +1643,7 @@ function SpreadsheetTable({
 
         // 2. Specific domain error types
         if (row.status === "ERROR") {
-            if (errorType === "COMMISSION_ERROR" || reason.includes("commission")) {
+            if (errorType.includes("COMMISSION") || reason.includes("commission")) {
                 errorFields.add("commission");
             }
             if (errorType === "AMOUNT_MISMATCH" || reason.includes("amount") || reason.includes("variance")) {
@@ -1776,10 +1817,13 @@ function SpreadsheetTable({
 
                             // 1. Reserved Empty Space for Unmatched / Missing Counterpart
                             if (row.isEmpty) {
+                                const targetDisplayNum = focusedErrorDisplayRow || focusedErrorSourceRow || null;
+                                const isTargetSheet = !focusedErrorSheet || sheet === focusedErrorSheet;
                                 const isEmptyFocused = Boolean(
-                                    focusedErrorSourceRow &&
-                                    Number(rowNumber) === Number(focusedErrorSourceRow) &&
-                                    (!focusedErrorSheet || sheet === focusedErrorSheet)
+                                    isTargetSheet &&
+                                    !focusedErrorTxnId &&
+                                    targetDisplayNum &&
+                                    Number(rowNumber) === Number(targetDisplayNum)
                                 );
                                 return (
                                     <tr
@@ -1860,13 +1904,33 @@ function SpreadsheetTable({
                             const isAmountError = errorFields.has("amount");
                             const isCommError = errorFields.has("commission");
 
+                            // Differentiate case where commission is collected on both M In and M Out sides
+                            const isCommBothSides = Boolean(
+                                isCommError && (
+                                    row.errorType === "COMMISSION_BOTH_SIDES" ||
+                                    (/dual/i.test(row.errorReason || "")) ||
+                                    (/collected on both/i.test(row.errorReason || "")) ||
+                                    (/both sides/i.test(row.errorReason || "") && !/zero|neither|not collected/i.test(row.errorReason || "")) ||
+                                    (Number(row.commission) > 0 && (
+                                        Number(row.matchDetails?.counterpartCommission) > 0 ||
+                                        Number(row.counterpartCommission) > 0 ||
+                                        Number(row.counterpartRow?.commission) > 0 ||
+                                        !/zero|neither|missing|not collected/i.test(row.errorReason || "")
+                                    ))
+                                )
+                            );
+
+                            const rowDisplayNum = row.displayIndex !== undefined ? row.displayIndex : rowNumber;
+                            const targetDisplayNum = focusedErrorDisplayRow || focusedErrorSourceRow || null;
+                            const isTargetSheet = !focusedErrorSheet || sheet === focusedErrorSheet;
+
                             const isFocusedError = Boolean(
-                                ((focusedErrorTxnId && String(row.id) === String(focusedErrorTxnId)) ||
-                                 (focusedErrorSourceRow && (
-                                     Number(row.sourceRow) === Number(focusedErrorSourceRow) ||
-                                     Number(rowNumber) === Number(focusedErrorSourceRow)
-                                 ))) &&
-                                (!focusedErrorSheet || sheet === focusedErrorSheet)
+                                isTargetSheet &&
+                                (
+                                    focusedErrorTxnId
+                                        ? (!row.isEmpty && (String(row.id) === String(focusedErrorTxnId) || Number(row.id) === Number(focusedErrorTxnId)))
+                                        : (targetDisplayNum && Number(rowDisplayNum) === Number(targetDisplayNum))
+                                )
                             );
 
                             return (
@@ -2000,7 +2064,11 @@ function SpreadsheetTable({
                                     </td>
 
                                     {/* Commission */}
-                                    <td className={`col-comm cell-editable ${isCommError ? "cell-has-error" : ""}`}>
+                                    <td className={`col-comm cell-editable ${
+                                        isCommBothSides
+                                            ? "cell-has-dual-comm-error"
+                                            : (isCommError ? "cell-has-error" : "")
+                                    }`}>
                                         <input
                                             type="number"
                                             data-field="commission"
@@ -2018,7 +2086,11 @@ function SpreadsheetTable({
                                             onChange={(e) =>
                                                 onCellChange(sheet, row.id, "commission", e.target.value)
                                             }
-                                            title={isCommError ? row.errorReason || "Commission issue" : undefined}
+                                            title={
+                                                isCommBothSides
+                                                    ? row.errorReason || "Commission collected on both M In and M Out"
+                                                    : (isCommError ? row.errorReason || "Commission issue" : undefined)
+                                            }
                                         />
                                     </td>
                                 </tr>
