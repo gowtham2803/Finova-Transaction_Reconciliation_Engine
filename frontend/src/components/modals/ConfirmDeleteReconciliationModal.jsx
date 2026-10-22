@@ -61,7 +61,7 @@ export default function ConfirmDeleteReconciliationModal({
                     <div className="confirm-delete-alert">
                         <AlertTriangle size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
                         <div className="text-xs text-slate-300 leading-relaxed">
-                            Are you sure you want to permanently delete <strong>{reconciliation.reconciliationName}</strong>? All associated M In and M Out transactions, reconciliation results, matched pairs, and error records will be completely removed. This action cannot be undone.
+                            Are you sure you want to permanently delete <strong>{reconciliation.reconciliationName}</strong>? This action cannot be undone.
                         </div>
                     </div>
 

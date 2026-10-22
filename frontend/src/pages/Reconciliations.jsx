@@ -304,9 +304,9 @@ export default function Reconciliations() {
                                     <td colSpan={6} className="py-12 text-center">
                                         <div className="empty-state-wrap">
                                             <Layers size={36} className="text-slate-500 mx-auto mb-2" />
-                                            <div className="empty-title">No matching reconciliations</div>
+                                            <div className="empty-title">No records found</div>
                                             <div className="empty-sub">
-                                                No records found for current filters.
+                                                -
                                             </div>
                                             <button
                                                 type="button"

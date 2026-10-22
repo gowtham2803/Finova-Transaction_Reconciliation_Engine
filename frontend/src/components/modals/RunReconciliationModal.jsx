@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
     Play,
     CheckCircle2,
@@ -23,6 +23,7 @@ export default function RunReconciliationModal({
     const [currentStepIndex, setCurrentStepIndex] = useState(0);
     const [runFinished, setRunFinished] = useState(false);
     const [finalOutcome, setFinalOutcome] = useState(null);
+    const isCancelledRef = useRef(false);
 
     const steps = [
         "Preparing transaction records from M In and M Out...",
@@ -39,12 +40,14 @@ export default function RunReconciliationModal({
             setCurrentStepIndex(0);
             setRunFinished(false);
             setFinalOutcome(null);
+            isCancelledRef.current = false;
         }
     }, [isOpen]);
 
     if (!isOpen || !reconciliation) return null;
 
     const startExecution = async () => {
+        isCancelledRef.current = false;
         setRunning(true);
         setCurrentStepIndex(0);
 
@@ -52,19 +55,26 @@ export default function RunReconciliationModal({
 
         for (let i = 0; i < steps.length - 1; i++) {
             await new Promise((r) => setTimeout(r, stepDelay));
+            if (isCancelledRef.current) return;
             setCurrentStepIndex(i + 1);
         }
 
         try {
+            if (isCancelledRef.current) return;
             const outcome = await onConfirmRun();
+            if (isCancelledRef.current) return;
             setFinalOutcome(outcome);
             setRunFinished(true);
         } catch {
-            setRunning(false);
+            if (!isCancelledRef.current) {
+                setRunning(false);
+            }
         }
     };
 
     const handleClose = () => {
+        isCancelledRef.current = true;
+        setRunning(false);
         onClose();
     };
 
@@ -72,7 +82,7 @@ export default function RunReconciliationModal({
     const nextVersion = currentVersion + 1;
 
     return (
-        <div className="modal-backdrop" onClick={!running ? handleClose : undefined}>
+        <div className="modal-backdrop" onClick={handleClose}>
             <div
                 className="modal-container run-reconciliation-modal"
                 onClick={(e) => e.stopPropagation()}
@@ -81,40 +91,32 @@ export default function RunReconciliationModal({
             >
                 {/* Modal Header */}
                 <div className="modal-header">
-                    <div className="flex items-center gap-2.5">
-                        <div className="run-header-icon-badge">
-                            {isRerun ? (
-                                <RefreshCw size={18} className={running ? "spin text-blue-400" : "text-blue-400"} />
-                            ) : (
-                                <Play size={18} className="text-blue-400" />
-                            )}
+                    <div>
+                        <div className="modal-badge">
+                            {isRerun ? "Reconciliation Engine • Re-run" : "Reconciliation Engine • Run"}
                         </div>
-                        <div>
-                            <h2 className="modal-title text-base font-bold">
-                                {isRerun ? "Rerun Reconciliation Engine" : "Run Reconciliation"}
-                            </h2>
-                            <p className="modal-subtitle text-xs">
-                                <span className="font-semibold text-slate-300">{reconciliation.reconciliationName}</span>
-                                <span className="mx-1 text-slate-600">•</span>
-                                <span className="font-mono text-slate-400">{reconciliation.reconciliationCode}</span>
+                        <h2 className="modal-title">
+                            {isRerun ? "Rerun Reconciliation Engine" : "Run Reconciliation"}
+                        </h2>
+                        {reconciliation?.reconciliationName && (
+                            <p className="modal-subtitle">
+                                For reconciliation: <strong className="text-white">{reconciliation.reconciliationName}</strong>
                             </p>
-                        </div>
+                        )}
                     </div>
-                    {!running && (
-                        <button
-                            type="button"
-                            className="modal-close-btn"
-                            onClick={handleClose}
-                            aria-label="Close"
-                        >
-                            <X size={16} />
-                        </button>
-                    )}
+                    <button
+                        type="button"
+                        className="modal-close-btn"
+                        onClick={handleClose}
+                        aria-label="Close"
+                    >
+                        <X size={18} />
+                    </button>
                 </div>
 
                 {/* Modal Body */}
-                <div className="modal-body py-3">
-                    {/* STATE 1: COMPACT CONFIRMATION PROMPT (BEFORE EXECUTION) */}
+                <div className="modal-body">
+                    {/* STATE 1: CONFIRMATION PROMPT (BEFORE EXECUTION) */}
                     {!running && !runFinished && (
                         <div className="run-confirm-container">
                             <p className="run-confirm-lead-text">
@@ -163,34 +165,23 @@ export default function RunReconciliationModal({
                         </div>
                     )}
 
-                    {/* STATE 2: RUNNING PROGRESS ANIMATION */}
+                    {/* STATE 2: RUNNING PROGRESS ANIMATION (EXACT MATCH WITH IMPORT EXCEL MODAL) */}
                     {running && !runFinished && (
-                        <div className="run-progress-display py-2">
-                            <div className="flex items-center justify-center mb-3">
-                                <div className="reconciliation-gear-animation">
-                                    <Cpu size={32} className="spin text-blue-400" />
-                                </div>
+                        <div className="upload-progress-container">
+                            <div className="reconciliation-gear-animation">
+                                <Cpu size={32} className="spin text-blue-400" />
                             </div>
-
-                            <div className="text-center font-semibold text-slate-200 text-xs mb-2">
-                                {steps[currentStepIndex]}
-                            </div>
-
-                            <div className="progress-bar-track mb-2">
-                                <div
-                                    className="progress-bar-fill transition-all duration-300"
-                                    style={{
-                                        width: `${Math.round(((currentStepIndex + 1) / steps.length) * 100)}%`
-                                    }}
-                                ></div>
-                            </div>
-                            <div className="text-[11px] text-slate-400 text-center">
+                            <h3 className="uploading-title">
+                                {isRerun ? "Re-running Reconciliation Engine" : "Running Reconciliation Engine"}
+                            </h3>
+                            <p className="uploading-stage">{steps[currentStepIndex]}</p>
+                            <div className="progress-percent">
                                 Processing Step {currentStepIndex + 1} of {steps.length}
                             </div>
                         </div>
                     )}
 
-                    {/* STATE 3: EXECUTION COMPLETE DIALOG (COMPACT PROPORTIONS) */}
+                    {/* STATE 3: EXECUTION COMPLETE DIALOG */}
                     {runFinished && finalOutcome && (
                         <div className="run-completed-container">
                             <div className="run-completed-hero">
@@ -272,6 +263,15 @@ export default function RunReconciliationModal({
                                 <span>Confirm &amp; Execute</span>
                             </button>
                         </>
+                    )}
+                    {running && !runFinished && (
+                        <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={handleClose}
+                        >
+                            Cancel
+                        </button>
                     )}
                     {runFinished && (
                         <button

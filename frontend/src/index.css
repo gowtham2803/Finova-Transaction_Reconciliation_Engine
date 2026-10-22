@@ -5447,23 +5447,11 @@ input[type="date"] {
 
 /* =========================================================
    RUN RECONCILIATION MODAL & EXECUTION COMPLETE STYLING
-   Restored to previous compact dimensions & balanced proportions
+   Standardized to match Import Excel processing dialog
    ========================================================= */
 .modal-container.run-reconciliation-modal {
-    max-width: 550px;
-    width: 90vw;
-}
-
-.modal-container.run-reconciliation-modal .modal-header {
-    padding: 16px 20px;
-}
-
-.modal-container.run-reconciliation-modal .modal-body {
-    padding: 14px 20px 8px;
-}
-
-.modal-container.run-reconciliation-modal .modal-actions {
-    padding: 12px 20px 16px;
+    max-width: 760px;
+    width: 94%;
 }
 
 .run-header-icon-badge {
