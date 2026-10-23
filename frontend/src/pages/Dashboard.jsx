@@ -321,7 +321,7 @@ export default function Dashboard() {
                                             <Layers size={36} className="text-slate-500 mx-auto mb-2" />
                                             <div className="empty-title">No reconciliations found</div>
                                             <div className="empty-sub">
-                                                Try adjusting your filter settings or create a new reconciliation.
+                                                -
                                             </div>
                                             <button
                                                 type="button"

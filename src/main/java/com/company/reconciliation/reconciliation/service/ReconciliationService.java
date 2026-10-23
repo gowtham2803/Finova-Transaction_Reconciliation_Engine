@@ -117,25 +117,10 @@ public class ReconciliationService {
         }
 
         // Clear previous errors and results for this reconciliation to prevent stale duplicates on rerun
-        List<ReconciliationError> existingErrors =
-                reconciliationErrorRepository.findByReconciliationResultReconciliationId(reconciliationId);
-        if (!existingErrors.isEmpty()) {
-            for (ReconciliationError err : existingErrors) {
-                List<ErrorResolution> resolutions = errorResolutionRepository.findByErrorId(err.getId());
-                if (!resolutions.isEmpty()) {
-                    errorResolutionRepository.deleteAllInBatch(resolutions);
-                }
-            }
-            reconciliationErrorRepository.deleteAllInBatch(existingErrors);
-            reconciliationErrorRepository.flush();
-        }
-
-        List<ReconciliationResult> existingResults =
-                reconciliationResultRepository.findByReconciliationId(reconciliationId);
-        if (!existingResults.isEmpty()) {
-            reconciliationResultRepository.deleteAllInBatch(existingResults);
-            reconciliationResultRepository.flush();
-        }
+        errorResolutionRepository.deleteByReconciliationId(reconciliationId);
+        reconciliationErrorRepository.deleteByReconciliationId(reconciliationId);
+        reconciliationResultRepository.deleteByReconciliationId(reconciliationId);
+        reconciliationResultRepository.flush();
 
         ReconciliationEngineResult result =
                 reconciliationEngine.reconcile(

@@ -27,6 +27,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -69,18 +71,37 @@ public class TransactionServiceImpl implements TransactionService {
     public TransactionResponse createTransaction(
             TransactionCreateRequest request
     ) {
+        return createTransactionInternal(request, null, null);
+    }
+
+    private TransactionResponse createTransactionInternal(
+            TransactionCreateRequest request,
+            Map<Long, Reconciliation> reconciliationCache,
+            Map<String, Branch> branchCache
+    ) {
         if (request == null) {
             throw new IllegalArgumentException(
                     "Transaction request cannot be null"
             );
         }
 
-        Reconciliation reconciliation = reconciliationRepository
-                .findById(request.getReconciliationId())
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Reconciliation not found with ID: "
-                                + request.getReconciliationId()
-                ));
+        Long reconciliationId = request.getReconciliationId();
+        Reconciliation reconciliation;
+        if (reconciliationCache != null && reconciliationId != null) {
+            reconciliation = reconciliationCache.computeIfAbsent(
+                    reconciliationId,
+                    id -> reconciliationRepository.findById(id).orElseThrow(() -> new IllegalArgumentException(
+                            "Reconciliation not found with ID: " + id
+                    ))
+            );
+        } else {
+            reconciliation = reconciliationRepository
+                    .findById(reconciliationId)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Reconciliation not found with ID: "
+                                    + reconciliationId
+                    ));
+        }
 
         String sheetLabel = request.getSourceSheet() != null ? (request.getSourceSheet().equals("M_IN") ? "M In" : "M Out") : "";
         String rowLabel = request.getSourceRow() != null ? "Row " + request.getSourceRow() : "";
@@ -88,8 +109,8 @@ public class TransactionServiceImpl implements TransactionService {
                 ? "[" + (sheetLabel + " " + rowLabel).trim() + "] "
                 : "";
 
-        Branch fromBranch = resolveBranch(request.getFromBranchId(), request.getFromBranchName(), "From", context);
-        Branch toBranch = resolveBranch(request.getToBranchId(), request.getToBranchName(), "To", context);
+        Branch fromBranch = resolveBranchCached(request.getFromBranchId(), request.getFromBranchName(), "From", context, branchCache);
+        Branch toBranch = resolveBranchCached(request.getToBranchId(), request.getToBranchName(), "To", context, branchCache);
 
         LocalDateTime now = LocalDateTime.now();
 
@@ -156,6 +177,9 @@ public class TransactionServiceImpl implements TransactionService {
             );
         }
 
+        Map<Long, Reconciliation> reconciliationCache = new HashMap<>();
+        Map<String, Branch> branchCache = new HashMap<>();
+
         List<TransactionResponse> responses =
                 new ArrayList<>(requests.size());
 
@@ -166,8 +190,8 @@ public class TransactionServiceImpl implements TransactionService {
                 );
             }
 
-            // Each transaction is created and audited
-            responses.add(createTransaction(request));
+            // Each transaction is created and audited with cached entity lookups
+            responses.add(createTransactionInternal(request, reconciliationCache, branchCache));
         }
 
         return responses;
@@ -508,6 +532,23 @@ public class TransactionServiceImpl implements TransactionService {
         // 3. Delete transactions
         transactionRepository.deleteAllById(validIds);
         transactionRepository.flush();
+    }
+
+    private Branch resolveBranchCached(Long branchId, String branchName, String direction, String context, Map<String, Branch> branchCache) {
+        if (branchCache == null) {
+            return resolveBranch(branchId, branchName, direction, context);
+        }
+        String cacheKey = (branchName != null && !branchName.trim().isEmpty())
+                ? "NAME:" + branchName.trim().toLowerCase()
+                : "ID:" + branchId;
+
+        Branch cached = branchCache.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        Branch resolved = resolveBranch(branchId, branchName, direction, context);
+        branchCache.put(cacheKey, resolved);
+        return resolved;
     }
 
     private Branch resolveBranch(Long branchId, String branchName, String direction, String context) {

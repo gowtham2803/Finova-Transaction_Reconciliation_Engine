@@ -275,27 +275,27 @@ export default function ReconciliationDetails() {
             }
         }
 
-        // 4. Update URL params to navigate to Transactions tab cleanly
-        setSearchParams({ tab: "transactions" });
-
-        // 5. Trigger focus on workspace
-        const triggerFocus = () => {
-            if (workspaceRef.current?.focusTransaction) {
-                workspaceRef.current.focusTransaction({
-                    txnId: targetTxnId ? Number(targetTxnId) : null,
-                    sheet,
-                    field,
-                    displayRow: targetDisplayRow ? Number(targetDisplayRow) : null,
-                    sourceRow: targetDisplayRow ? Number(targetDisplayRow) : null,
-                    errorType: err.errorType,
-                    description: err.description,
-                    force: true
-                });
-            }
+        // 4. Clean focus parameters payload
+        const focusPayload = {
+            txnId: targetTxnId ? Number(targetTxnId) : null,
+            sheet,
+            field,
+            displayRow: targetDisplayRow ? Number(targetDisplayRow) : null,
+            sourceRow: targetDisplayRow ? Number(targetDisplayRow) : null,
+            errorType: err.errorType,
+            description: err.description,
+            force: true
         };
 
-        setTimeout(triggerFocus, 60);
-        setTimeout(triggerFocus, 200);
+        // 5. Update URL params to navigate to Transactions tab cleanly
+        setSearchParams({ tab: "transactions" });
+
+        // 6. Trigger focus on workspace deterministically on next animation frame
+        requestAnimationFrame(() => {
+            if (workspaceRef.current?.focusTransaction) {
+                workspaceRef.current.focusTransaction(focusPayload);
+            }
+        });
     };
 
     const handleExecuteRun = async () => {

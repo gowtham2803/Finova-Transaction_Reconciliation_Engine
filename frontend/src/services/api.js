@@ -166,12 +166,38 @@ export async function apiGetCurrentUser() {
     return await request("/auth/me");
 }
 
+let cachedBranches = null;
+let branchesPromise = null;
+let branchesCacheTime = 0;
+
 /**
- * 1. BRANCHES: Retrieve all active branches from MySQL
+ * 1. BRANCHES: Retrieve all active branches from MySQL (with client-side in-flight promise and memory caching)
  */
-export async function getBranches() {
-    const branches = await request("/branches");
-    return Array.isArray(branches) ? branches : [];
+export async function getBranches(forceRefresh = false) {
+    const now = Date.now();
+    if (!forceRefresh && cachedBranches && (now - branchesCacheTime < 60000)) {
+        return cachedBranches;
+    }
+    if (!forceRefresh && branchesPromise) {
+        return branchesPromise;
+    }
+    branchesPromise = (async () => {
+        try {
+            const branches = await request("/branches");
+            cachedBranches = Array.isArray(branches) ? branches : [];
+            branchesCacheTime = Date.now();
+            return cachedBranches;
+        } finally {
+            branchesPromise = null;
+        }
+    })();
+    return branchesPromise;
+}
+
+export function clearBranchesCache() {
+    cachedBranches = null;
+    branchesPromise = null;
+    branchesCacheTime = 0;
 }
 
 /**
@@ -189,11 +215,17 @@ export async function ensureBranches(branchNames) {
     if (cleanNames.length === 0) {
         return getBranches();
     }
+    clearBranchesCache();
     const branches = await request("/branches/ensure", {
         method: "POST",
         body: JSON.stringify(cleanNames)
     });
-    return Array.isArray(branches) ? branches : getBranches();
+    if (Array.isArray(branches)) {
+        cachedBranches = branches;
+        branchesCacheTime = Date.now();
+        return branches;
+    }
+    return getBranches(true);
 }
 
 /**

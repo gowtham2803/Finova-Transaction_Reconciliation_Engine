@@ -37,8 +37,10 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
     const mInScrollRef = useRef(null);
     const mOutScrollRef = useRef(null);
     const isSyncingScroll = useRef(false);
+    const isProgrammaticScrolling = useRef(false);
     const lastFocusRequestRef = useRef(null);
     const scrollAnimationTimeoutRef = useRef(null);
+    const programmaticScrollTimeoutRef = useRef(null);
     const alignedSlotsRef = useRef(null);
 
     const [mInRows, setMInRows] = useState([]);
@@ -65,9 +67,17 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
     const [unsavedChanges, setUnsavedChanges] = useState(new Set()); // Set of "rowId-field" or rowIndex
     const [deletedRowIds, setDeletedRowIds] = useState(new Set()); // Set of persisted transaction IDs pending deletion
 
-    // Search and filter
+    // Search and filter with debouncing
+    const [searchInput, setSearchInput] = useState("");
     const [searchQuery, setSearchQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState("ALL"); // ALL, MATCHED, UNMATCHED, ERROR
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setSearchQuery(searchInput);
+        }, 150);
+        return () => clearTimeout(timer);
+    }, [searchInput]);
 
     // Single source of truth: strictly registered database branches
     const allAvailableBranches = useMemo(() => {
@@ -81,6 +91,19 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
             }))
             .sort((a, b) => (Number(a.id) || 999) - (Number(b.id) || 999));
     }, [branches]);
+
+    // Fast O(1) branch lookup index
+    const branchIndex = useMemo(() => {
+        const byId = new Map();
+        const byCodeOrName = new Map();
+        allAvailableBranches.forEach((b) => {
+            if (b.id !== undefined && b.id !== null) byId.set(String(b.id), b);
+            if (b.code) byCodeOrName.set(b.code.toUpperCase(), b);
+            if (b.name) byCodeOrName.set(b.name.toUpperCase(), b);
+            if (b.fullName) byCodeOrName.set(b.fullName.toUpperCase(), b);
+        });
+        return { byId, byCodeOrName };
+    }, [allAvailableBranches]);
 
     // Add rows modal
     const [addRowsModalState, setAddRowsModalState] = useState({
@@ -263,10 +286,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                 const clean = (value || "").trim().toUpperCase();
                 target.fromBranchCode = value.toUpperCase();
                 target.fromBranchName = value.toUpperCase();
-                const b = allAvailableBranches.find(
-                    (item) => (item.code && item.code.toUpperCase() === clean) ||
-                              (item.name && item.name.toUpperCase() === clean)
-                );
+                const b = branchIndex.byCodeOrName.get(clean);
                 if (b) {
                     target.fromBranchId = b.id;
                     target.fromBranchCode = b.code || b.name;
@@ -280,10 +300,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                 const clean = (value || "").trim().toUpperCase();
                 target.toBranchCode = value.toUpperCase();
                 target.toBranchName = value.toUpperCase();
-                const b = allAvailableBranches.find(
-                    (item) => (item.code && item.code.toUpperCase() === clean) ||
-                              (item.name && item.name.toUpperCase() === clean)
-                );
+                const b = branchIndex.byCodeOrName.get(clean);
                 if (b) {
                     target.toBranchId = b.id;
                     target.toBranchCode = b.code || b.name;
@@ -295,12 +312,12 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                 }
             } else if (field === "fromBranchId") {
                 target.fromBranchId = value;
-                const b = allAvailableBranches.find((item) => String(item.id) === String(value));
+                const b = branchIndex.byId.get(String(value));
                 target.fromBranchName = b ? (b.code || b.name) : "";
                 target.fromBranchCode = b ? (b.code || b.name) : "";
             } else if (field === "toBranchId") {
                 target.toBranchId = value;
-                const b = allAvailableBranches.find((item) => String(item.id) === String(value));
+                const b = branchIndex.byId.get(String(value));
                 target.toBranchName = b ? (b.code || b.name) : "";
                 target.toBranchCode = b ? (b.code || b.name) : "";
             } else {
@@ -354,6 +371,13 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         const parsedRows = [];
         const pasteErrors = [];
 
+        const branchLookupMap = new Map();
+        allAvailableBranches.forEach((b) => {
+            if (b.name) branchLookupMap.set(b.name.trim().toLowerCase(), b);
+            if (b.code) branchLookupMap.set(b.code.trim().toLowerCase(), b);
+            if (b.fullName) branchLookupMap.set(b.fullName.trim().toLowerCase(), b);
+        });
+
         lines.forEach((line, lineIdx) => {
             if (!line.trim()) return;
             // Split by tab (\t) or comma or multiple spaces
@@ -385,11 +409,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                 const findBranchInfo = (text) => {
                     const clean = (text || "").trim();
                     if (!clean) return { id: "", name: "", code: "", found: false };
-                    const match = allAvailableBranches.find(
-                        (b) => (b.name && b.name.toLowerCase() === clean.toLowerCase()) ||
-                               (b.code && b.code.toLowerCase() === clean.toLowerCase()) ||
-                               (b.fullName && b.fullName.toLowerCase() === clean.toLowerCase())
-                    );
+                    const match = branchLookupMap.get(clean.toLowerCase());
                     return match
                         ? { id: match.id, name: match.code || match.name, code: match.code || match.name, found: true }
                         : { id: null, name: clean, code: clean, found: false };
@@ -446,6 +466,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         const isMIn = sheet === "M_IN";
         const setter = isMIn ? setMInRows : setMOutRows;
 
+        const newUnsavedIds = [];
         setter((prev) => {
             const next = [...prev];
             parsedRows.forEach((item, i) => {
@@ -456,7 +477,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                         ...next[targetIdx],
                         ...item
                     };
-                    setUnsavedChanges((u) => new Set(u).add(next[targetIdx].id));
+                    newUnsavedIds.push(next[targetIdx].id);
                 } else {
                     // Append new row
                     const newRow = {
@@ -464,11 +485,19 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                         ...item
                     };
                     next.push(newRow);
-                    setUnsavedChanges((u) => new Set(u).add(newRow.id));
+                    newUnsavedIds.push(newRow.id);
                 }
             });
             return next;
         });
+
+        if (newUnsavedIds.length > 0) {
+            setUnsavedChanges((prev) => {
+                const updated = new Set(prev);
+                newUnsavedIds.forEach((id) => updated.add(id));
+                return updated;
+            });
+        }
 
         addToast({
             type: "success",
@@ -707,8 +736,8 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         const now = Date.now();
         const focusKey = `${txnId || ""}_${displayRow || sourceRow || ""}_${sheet || ""}_${field || ""}`;
 
-        // Prevent duplicate trigger within 800ms unless explicitly forced
-        if (!force && lastFocusRequestRef.current && lastFocusRequestRef.current.key === focusKey && (now - lastFocusRequestRef.current.time) < 800) {
+        // Prevent duplicate trigger within 400ms unless explicitly forced
+        if (!force && lastFocusRequestRef.current && lastFocusRequestRef.current.key === focusKey && (now - lastFocusRequestRef.current.time) < 400) {
             if (description && !lastFocusRequestRef.current.description) {
                 lastFocusRequestRef.current.description = description;
             }
@@ -724,6 +753,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
 
         // 1. Reset search and filters so row is guaranteed visible
         setStatusFilter("ALL");
+        setSearchInput("");
         setSearchQuery("");
 
         // 2. Ensure viewMode reveals target sheet
@@ -734,47 +764,65 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
             setViewMode("split");
         }
 
-        // 3. Find the target row in our data
-        const targetPool = resolvedSheet === "M_OUT" ? mOutRows : mInRows;
-        const fallbackPool = resolvedSheet === "M_OUT" ? mInRows : mOutRows;
+        // 3. Single-source-of-truth row resolution
+        // Use alignedSlotsRef.current or alignedSlots
+        const currentSlots = alignedSlotsRef.current || alignedSlots || (isReconciled ? buildAlignedSlots(mInRows, mOutRows) : null);
 
         let foundRow = null;
         let actualSheet = resolvedSheet;
+        let finalDisplayRow = null;
+        const numTxnId = (txnId !== null && txnId !== undefined) ? Number(txnId) : null;
 
-        // Priority 1: Match strictly by unique transaction ID
-        if (txnId !== null && txnId !== undefined) {
-            foundRow = targetPool.find((r) => String(r.id) === String(txnId) || Number(r.id) === Number(txnId));
-            if (!foundRow) {
-                foundRow = fallbackPool.find((r) => String(r.id) === String(txnId) || Number(r.id) === Number(txnId));
-                if (foundRow) {
-                    actualSheet = resolvedSheet === "M_OUT" ? "M_IN" : "M_OUT";
-                }
-            }
-        }
-
-        // Priority 2: Only if txnId is absent or not found, match by displayRow
-        if (!foundRow && (displayRow || sourceRow)) {
-            const targetRowIndex = Number(displayRow || sourceRow);
-            foundRow = targetPool.find((r) => Number(r.displayIndex) === targetRowIndex || Number(r.sourceRow) === targetRowIndex);
-            if (!foundRow) {
-                foundRow = fallbackPool.find((r) => Number(r.displayIndex) === targetRowIndex || Number(r.sourceRow) === targetRowIndex);
-                if (foundRow) {
-                    actualSheet = resolvedSheet === "M_OUT" ? "M_IN" : "M_OUT";
-                }
-            }
-        }
-
-        const finalTxnId = foundRow ? foundRow.id : (txnId ? Number(txnId) : null);
-        let finalDisplayRow = displayRow ? Number(displayRow) : (foundRow?.displayIndex || (sourceRow ? Number(sourceRow) : null));
-
-        if (!finalDisplayRow && alignedSlots && finalTxnId) {
-            const slotIdx = alignedSlots.findIndex((s) =>
-                (s.mIn && (String(s.mIn.id) === String(finalTxnId) || Number(s.mIn.id) === Number(finalTxnId))) ||
-                (s.mOut && (String(s.mOut.id) === String(finalTxnId) || Number(s.mOut.id) === Number(finalTxnId)))
+        // Priority 1: Match strictly by unique transaction ID in aligned slots (ground truth)
+        if (numTxnId && currentSlots && currentSlots.length > 0) {
+            const slotIdx = currentSlots.findIndex((s) =>
+                (s.mIn && Number(s.mIn.id) === numTxnId) ||
+                (s.mOut && Number(s.mOut.id) === numTxnId)
             );
             if (slotIdx !== -1) {
                 finalDisplayRow = slotIdx + 1;
+                const slot = currentSlots[slotIdx];
+                if (slot.mOut && Number(slot.mOut.id) === numTxnId) {
+                    actualSheet = "M_OUT";
+                    foundRow = slot.mOut;
+                } else if (slot.mIn && Number(slot.mIn.id) === numTxnId) {
+                    actualSheet = "M_IN";
+                    foundRow = slot.mIn;
+                }
             }
+        }
+
+        // Priority 2: Fallback lookup in raw row pools
+        if (!foundRow) {
+            const targetPool = actualSheet === "M_OUT" ? mOutRows : mInRows;
+            const fallbackPool = actualSheet === "M_OUT" ? mInRows : mOutRows;
+
+            if (numTxnId) {
+                foundRow = targetPool.find((r) => Number(r.id) === numTxnId);
+                if (!foundRow) {
+                    foundRow = fallbackPool.find((r) => Number(r.id) === numTxnId);
+                    if (foundRow) {
+                        actualSheet = actualSheet === "M_OUT" ? "M_IN" : "M_OUT";
+                    }
+                }
+            }
+
+            // Priority 3: Only if txnId is absent, match by displayRow or sourceRow
+            if (!foundRow && (displayRow || sourceRow)) {
+                const targetRowIndex = Number(displayRow || sourceRow);
+                foundRow = targetPool.find((r) => Number(r.displayIndex) === targetRowIndex || Number(r.sourceRow) === targetRowIndex);
+                if (!foundRow) {
+                    foundRow = fallbackPool.find((r) => Number(r.displayIndex) === targetRowIndex || Number(r.sourceRow) === targetRowIndex);
+                    if (foundRow) {
+                        actualSheet = actualSheet === "M_OUT" ? "M_IN" : "M_OUT";
+                    }
+                }
+            }
+        }
+
+        const finalTxnId = foundRow ? foundRow.id : numTxnId;
+        if (!finalDisplayRow) {
+            finalDisplayRow = displayRow ? Number(displayRow) : (foundRow?.displayIndex || (sourceRow ? Number(sourceRow) : null));
         }
 
         // 4. Update state to highlight target row and cell in UI
@@ -793,20 +841,54 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
         setCounterpartTransactionId(null);
         setHoveredCounterpartId(null);
 
-        // 5. Polling scroll loop: locates target row element, computes exact scrollTop, and verifies layout
-        let attempts = 0;
-        const maxAttempts = 35; // up to 3.5s to ensure tab layout & data rendering
-
+        // 5. Deterministic scroll & highlight loop
         if (scrollAnimationTimeoutRef.current) {
             clearTimeout(scrollAnimationTimeoutRef.current);
         }
+        if (programmaticScrollTimeoutRef.current) {
+            clearTimeout(programmaticScrollTimeoutRef.current);
+        }
 
-        const locateAndScrollRow = () => {
+        isProgrammaticScrolling.current = true;
+        isSyncingScroll.current = true;
+
+        const ROW_HEIGHT = 51;
+        let attempts = 0;
+        const maxAttempts = 40;
+
+        const performScrollAndHighlight = () => {
             attempts++;
 
             const targetContainer = actualSheet === "M_OUT" ? mOutScrollRef.current : mInScrollRef.current;
             const siblingContainer = actualSheet === "M_OUT" ? mInScrollRef.current : mOutScrollRef.current;
             const activeContainer = targetContainer || siblingContainer;
+
+            // If the workspace container is still hidden (e.g., activeTab just transitioned display: none -> block), wait
+            if (!activeContainer || activeContainer.clientHeight === 0) {
+                if (attempts < maxAttempts) {
+                    scrollAnimationTimeoutRef.current = setTimeout(performScrollAndHighlight, 50);
+                } else {
+                    isProgrammaticScrolling.current = false;
+                    isSyncingScroll.current = false;
+                }
+                return;
+            }
+
+            const cHeight = activeContainer.clientHeight;
+            let targetScrollTop = 0;
+
+            if (finalDisplayRow && finalDisplayRow > 0) {
+                const targetRowTop = (finalDisplayRow - 1) * ROW_HEIGHT;
+                targetScrollTop = Math.max(0, Math.round(targetRowTop - (cHeight / 2) + (ROW_HEIGHT / 2)));
+            }
+
+            // Scroll both containers to exact target position
+            if (activeContainer.scrollTop !== targetScrollTop) {
+                activeContainer.scrollTop = targetScrollTop;
+            }
+            if (siblingContainer && siblingContainer !== activeContainer && siblingContainer.scrollTop !== targetScrollTop) {
+                siblingContainer.scrollTop = targetScrollTop;
+            }
 
             // Search row element by ID or data attributes
             let rowEl = null;
@@ -821,53 +903,19 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                         document.querySelector(`[data-display-row="${finalDisplayRow}"]`);
             }
 
-            const isReady = rowEl && activeContainer &&
-                            activeContainer.clientHeight > 0 &&
-                            (rowEl.offsetHeight > 0 || rowEl.getBoundingClientRect().height > 0);
+            // If row element is not yet mounted in the DOM, wait for next tick
+            if (!rowEl && attempts < maxAttempts) {
+                scrollAnimationTimeoutRef.current = setTimeout(performScrollAndHighlight, 50);
+                return;
+            }
 
-            if (isReady) {
-                const containerRect = activeContainer.getBoundingClientRect();
-                const rowRect = rowEl.getBoundingClientRect();
-                const rowContentTop = (rowRect.top - containerRect.top) + activeContainer.scrollTop;
-                const targetScrollTop = Math.max(
-                    0,
-                    Math.round(rowContentTop - (activeContainer.clientHeight / 2) + (rowRect.height / 2))
-                );
-
-                isSyncingScroll.current = true;
-
-                // Smooth scroll container directly to exact target position
-                activeContainer.scrollTo({
-                    top: targetScrollTop,
-                    behavior: "smooth"
-                });
-
-                if (viewMode === "split" && siblingContainer && siblingContainer !== activeContainer) {
-                    siblingContainer.scrollTo({
-                        top: targetScrollTop,
-                        behavior: "smooth"
-                    });
-                }
-
+            if (rowEl) {
                 // Ensure the table workspace container is visible in page viewport
                 try {
                     activeContainer.scrollIntoView({ behavior: "smooth", block: "nearest" });
                 } catch {
                     // ignore
                 }
-
-                // Double check scroll position after 250ms to guarantee correct offset
-                setTimeout(() => {
-                    if (activeContainer) {
-                        const diff = Math.abs(activeContainer.scrollTop - targetScrollTop);
-                        if (diff > 120) {
-                            activeContainer.scrollTop = targetScrollTop;
-                            if (viewMode === "split" && siblingContainer) {
-                                siblingContainer.scrollTop = targetScrollTop;
-                            }
-                        }
-                    }
-                }, 300);
 
                 // Focus and pulse problematic cell input if applicable
                 if (field) {
@@ -886,11 +934,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                     }
                 }
 
-                setTimeout(() => {
-                    isSyncingScroll.current = false;
-                }, 600);
-
-                // DISPLAY SUCCESS TOAST ONLY AFTER TARGET ROW IS LOCATED AND SCROLLED INTO VIEW
+                // Display success toast once target row is located and scrolled into view
                 if (lastFocusRequestRef.current && !lastFocusRequestRef.current.notified) {
                     lastFocusRequestRef.current.notified = true;
                     const sheetName = actualSheet === "M_OUT" ? "M Out" : "M In";
@@ -903,37 +947,42 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                         message: toastDesc
                     });
                 }
-
-                // Clean up URL query parameters cleanly ONLY IF focus parameters exist
-                const hasFocusParams = searchParams.get("focusTxnId") ||
-                                       searchParams.get("focusRow") ||
-                                       searchParams.get("focusSheet") ||
-                                       searchParams.get("focusField");
-
-                if (hasFocusParams) {
-                    setSearchParams((prev) => {
-                        const next = new URLSearchParams(prev);
-                        next.set("tab", "transactions");
-                        next.delete("focusTxnId");
-                        next.delete("focusRow");
-                        next.delete("focusSheet");
-                        next.delete("focusField");
-                        return next;
-                    }, { replace: true });
-                }
-
-            } else if (attempts < maxAttempts) {
-                scrollAnimationTimeoutRef.current = setTimeout(locateAndScrollRow, 100);
             }
+
+            // Clean up URL query parameters cleanly ONLY IF focus parameters exist
+            const hasFocusParams = searchParams.get("focusTxnId") ||
+                                   searchParams.get("focusRow") ||
+                                   searchParams.get("focusSheet") ||
+                                   searchParams.get("focusField");
+
+            if (hasFocusParams) {
+                setSearchParams((prev) => {
+                    const next = new URLSearchParams(prev);
+                    next.set("tab", "transactions");
+                    next.delete("focusTxnId");
+                    next.delete("focusRow");
+                    next.delete("focusSheet");
+                    next.delete("focusField");
+                    return next;
+                }, { replace: true });
+            }
+
+            // Release scroll sync lock after scroll has settled
+            programmaticScrollTimeoutRef.current = setTimeout(() => {
+                isProgrammaticScrolling.current = false;
+                isSyncingScroll.current = false;
+            }, 250);
         };
 
-        scrollAnimationTimeoutRef.current = setTimeout(locateAndScrollRow, 80);
+        requestAnimationFrame(() => {
+            performScrollAndHighlight();
+        });
 
         // Auto-clear pulsing focus after 15s
         setTimeout(() => {
             setFocusedErrorTarget((prev) => (prev?.timestamp === now ? null : prev));
         }, 15000);
-    }, [mInRows, mOutRows, alignedSlots, viewMode, addToast, setSearchParams, searchParams]);
+    }, [mInRows, mOutRows, alignedSlots, isReconciled, viewMode, addToast, setSearchParams, searchParams]);
 
     useImperativeHandle(ref, () => ({
         hasUnsavedChanges: () => unsavedChanges.size > 0 || deletedRowIds.size > 0,
@@ -969,7 +1018,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
 
     // Synchronized scrolling between M In and M Out tables in split view
     const handleSyncScroll = (source) => {
-        if (viewMode !== "split" || isSyncingScroll.current) return;
+        if (viewMode !== "split" || isSyncingScroll.current || isProgrammaticScrolling.current) return;
         const sourceEl = source === "M_IN" ? mInScrollRef.current : mOutScrollRef.current;
         const targetEl = source === "M_IN" ? mOutScrollRef.current : mInScrollRef.current;
         if (!sourceEl || !targetEl) return;
@@ -983,6 +1032,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
 
     // Filter clearing helper
     const handleClearFilters = () => {
+        setSearchInput("");
         setSearchQuery("");
         setStatusFilter("ALL");
     };
@@ -1037,6 +1087,7 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
 
     const handleSelectRow = (row) => {
         if (!row || row.isEmpty) return;
+        setFocusedErrorTarget(null);
         setSelectedTransaction(row);
 
         // Identify corresponding transaction in reciprocal sheet
@@ -1093,14 +1144,17 @@ const TransactionWorkspace = forwardRef(function TransactionWorkspace(
                             type="text"
                             className="workspace-search-input"
                             placeholder="Filter by branch"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
+                            value={searchInput}
+                            onChange={(e) => setSearchInput(e.target.value)}
                         />
-                        {searchQuery && (
+                        {searchInput && (
                             <button
                                 type="button"
                                 className="search-clear-btn"
-                                onClick={() => setSearchQuery("")}
+                                onClick={() => {
+                                    setSearchInput("");
+                                    setSearchQuery("");
+                                }}
                             >
                                 ×
                             </button>
@@ -1500,6 +1554,53 @@ function SpreadsheetTable({
 }) {
     const isMIn = sheet === "M_IN";
 
+    // Row virtualization parameters
+    const ROW_HEIGHT = 51;
+    const OVERSCAN = 25;
+    const [scrollTop, setScrollTop] = useState(0);
+    const [containerHeight, setContainerHeight] = useState(600);
+
+    useEffect(() => {
+        if (!scrollRef || !scrollRef.current) return;
+        const el = scrollRef.current;
+        if (el.clientHeight > 0) setContainerHeight(el.clientHeight);
+        const observer = new ResizeObserver((entries) => {
+            for (let entry of entries) {
+                if (entry.contentRect.height > 0) {
+                    setContainerHeight(entry.contentRect.height);
+                }
+            }
+        });
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, [scrollRef]);
+
+    const handleLocalScroll = (e) => {
+        setScrollTop(e.target.scrollTop);
+        if (onScroll) onScroll(e);
+    };
+
+    // Synchronize virtualization window immediately when an error row is focused
+    useEffect(() => {
+        if (focusedErrorDisplayRow && scrollRef?.current) {
+            const currentScroll = scrollRef.current.scrollTop;
+            if (Math.abs(currentScroll - scrollTop) > 10) {
+                setScrollTop(currentScroll);
+            }
+        }
+    }, [focusedErrorDisplayRow, focusedErrorTxnId, scrollRef]);
+
+    // Fast O(1) branch code map for rendering
+    const branchMapById = useMemo(() => {
+        const map = new Map();
+        (branches || []).forEach((b) => {
+            if (b && b.id !== undefined && b.id !== null) {
+                map.set(String(b.id), b.code || b.name || "");
+            }
+        });
+        return map;
+    }, [branches]);
+
     // Batch Selection State (Only active in Focus M In / Focus M Out)
     const [selectedRowIds, setSelectedRowIds] = useState(new Set());
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -1780,10 +1881,9 @@ function SpreadsheetTable({
             )}
 
             {/* Scrollable Spreadsheet Table Container */}
-            {/* Scrollable Spreadsheet Table Container */}
             <div
                 ref={scrollRef}
-                onScroll={onScroll}
+                onScroll={handleLocalScroll}
                 className="spreadsheet-scroll-area"
                 onPaste={(e) => onTablePaste(e, 0)}
                 tabIndex={0}
@@ -1812,7 +1912,29 @@ function SpreadsheetTable({
                         </tr>
                     </thead>
                     <tbody>
-                        {rows.map((row, idx) => {
+                        {(() => {
+                            const totalCount = rows.length;
+                            const isVirtualized = totalCount > 60;
+                            const startIndex = isVirtualized
+                                ? Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)
+                                : 0;
+                            const endIndex = isVirtualized
+                                ? Math.min(totalCount, Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN)
+                                : totalCount;
+
+                            const visibleRows = isVirtualized ? rows.slice(startIndex, endIndex) : rows;
+                            const topSpacerHeight = isVirtualized ? startIndex * ROW_HEIGHT : 0;
+                            const bottomSpacerHeight = isVirtualized ? Math.max(0, (totalCount - endIndex) * ROW_HEIGHT) : 0;
+
+                            return (
+                                <>
+                                    {topSpacerHeight > 0 && (
+                                        <tr className="virtual-spacer-top" style={{ height: `${topSpacerHeight}px`, border: 0, padding: 0 }}>
+                                            <td colSpan={allowDelete ? 7 : 6} style={{ height: `${topSpacerHeight}px`, padding: 0, border: 0, background: "transparent" }} />
+                                        </tr>
+                                    )}
+                                    {visibleRows.map((row, relativeIdx) => {
+                                        const idx = startIndex + relativeIdx;
                             const rowNumber = row.displayIndex !== undefined ? row.displayIndex : idx + 1;
 
                             // 1. Reserved Empty Space for Unmatched / Missing Counterpart
@@ -1886,8 +2008,7 @@ function SpreadsheetTable({
                                 if (directCode) return directCode;
                                 const branchId = isTo ? row.toBranchId : row.fromBranchId;
                                 if (branchId) {
-                                    const found = (branches || []).find((b) => String(b.id) === String(branchId));
-                                    if (found) return found.code || found.name || "";
+                                    return branchMapById.get(String(branchId)) || "";
                                 }
                                 return "";
                             };
@@ -2096,6 +2217,14 @@ function SpreadsheetTable({
                                 </tr>
                             );
                         })}
+                                    {bottomSpacerHeight > 0 && (
+                                        <tr className="virtual-spacer-bottom" style={{ height: `${bottomSpacerHeight}px`, border: 0, padding: 0 }}>
+                                            <td colSpan={allowDelete ? 7 : 6} style={{ height: `${bottomSpacerHeight}px`, padding: 0, border: 0, background: "transparent" }} />
+                                        </tr>
+                                    )}
+                                </>
+                            );
+                        })()}
 
                         {rows.length === 0 && (
                             <tr>

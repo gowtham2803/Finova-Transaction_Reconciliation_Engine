@@ -11,11 +11,31 @@ export function formatFileSize(bytes) {
     return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
 
+export function buildBranchIndex(branches = []) {
+    const byId = new Map();
+    const byCodeOrName = new Map();
+
+    (branches || []).forEach((b) => {
+        if (!b) return;
+        if (b.id !== undefined && b.id !== null) {
+            byId.set(Number(b.id), b);
+        }
+        if (b.code) {
+            byCodeOrName.set(String(b.code).trim().toLowerCase(), b);
+        }
+        if (b.name) {
+            byCodeOrName.set(String(b.name).trim().toLowerCase(), b);
+        }
+    });
+
+    return { byId, byCodeOrName };
+}
+
 /**
  * Dynamically resolves raw text or number to a branch from active branch list
  * or extracts the exact branch name directly from the Excel cell.
  */
-export function resolveBranch(rawVal, branches = []) {
+export function resolveBranch(rawVal, branchesOrIndex = []) {
     if (rawVal === undefined || rawVal === null || String(rawVal).trim() === "") {
         return { id: null, name: "Unknown", code: "UNK", isValid: false, isUnknown: true };
     }
@@ -24,17 +44,27 @@ export function resolveBranch(rawVal, branches = []) {
     const strLower = trimmed.toLowerCase();
     const num = Number(rawVal);
 
+    const isIndexed = branchesOrIndex && branchesOrIndex.byId && branchesOrIndex.byCodeOrName;
+    const byIdMap = isIndexed ? branchesOrIndex.byId : null;
+    const byCodeOrNameMap = isIndexed ? branchesOrIndex.byCodeOrName : null;
+
     // 1. Match by numeric ID against existing active branches
     if (!isNaN(num) && num > 0) {
-        const byId = branches.find((b) => Number(b.id) === num);
+        const byId = byIdMap
+            ? byIdMap.get(num)
+            : (Array.isArray(branchesOrIndex) ? branchesOrIndex.find((b) => Number(b.id) === num) : null);
         if (byId) return { id: byId.id, name: byId.code || byId.name, code: byId.code, fullName: byId.name, isValid: true, isUnknown: false };
     }
 
     // 2. Exact match by code or name against existing branches (case-insensitive)
-    const exact = branches.find(
-        (b) => (b.name && b.name.trim().toLowerCase() === strLower) ||
-               (b.code && b.code.trim().toLowerCase() === strLower)
-    );
+    const exact = byCodeOrNameMap
+        ? byCodeOrNameMap.get(strLower)
+        : (Array.isArray(branchesOrIndex)
+            ? branchesOrIndex.find(
+                (b) => (b.name && b.name.trim().toLowerCase() === strLower) ||
+                       (b.code && b.code.trim().toLowerCase() === strLower)
+              )
+            : null);
     if (exact) {
         return { id: exact.id, name: exact.code || exact.name, code: exact.code, fullName: exact.name, isValid: true, isUnknown: false };
     }
@@ -170,6 +200,7 @@ function parseSheetRows(worksheet, sheetType, branches, reconciliationId) {
     const parsed = [];
     let warnings = 0;
     const invalidBranchErrors = [];
+    const branchIndex = Array.isArray(branches) ? buildBranchIndex(branches) : branches;
 
     for (let r = startRow; r < rawData.length; r++) {
         const row = rawData[r];
@@ -195,12 +226,12 @@ function parseSheetRows(worksheet, sheetType, branches, reconciliationId) {
 
         if (isMIn) {
             // M In: Col 1 in UI is BRANCH (destination receiving money), Col 2 in UI is From BRANCH (source origin)
-            toBranch = resolveBranch(rawBranch1, branches);
-            fromBranch = resolveBranch(rawBranch2, branches);
+            toBranch = resolveBranch(rawBranch1, branchIndex);
+            fromBranch = resolveBranch(rawBranch2, branchIndex);
         } else {
             // M Out: Col 1 in UI is BRANCH (source origin sending money), Col 2 in UI is To BRANCH (destination)
-            fromBranch = resolveBranch(rawBranch1, branches);
-            toBranch = resolveBranch(rawBranch2, branches);
+            fromBranch = resolveBranch(rawBranch1, branchIndex);
+            toBranch = resolveBranch(rawBranch2, branchIndex);
         }
 
         const displaySheetName = isMIn ? "M In" : "M Out";

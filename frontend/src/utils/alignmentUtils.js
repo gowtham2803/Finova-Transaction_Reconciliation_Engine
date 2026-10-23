@@ -21,15 +21,28 @@
  */
 export function buildAlignedSlots(mInRows = [], mOutRows = [], results = []) {
     const mOutMap = new Map();
+    // Index unmatched candidates by matching signature: `${toBranchId}:${fromBranchId}:${amount}` for fast O(1) matching
+    const routeAmountQueues = new Map();
+
     (mOutRows || []).forEach((r) => {
-        if (r && r.id !== undefined && r.id !== null) {
-            mOutMap.set(Number(r.id), r);
+        if (!r) return;
+        const outId = Number(r.id);
+        if (r.id !== undefined && r.id !== null) {
+            mOutMap.set(outId, r);
         }
+        const key = `${r.toBranchId}:${r.fromBranchId}:${r.amount}`;
+        let q = routeAmountQueues.get(key);
+        if (!q) {
+            q = [];
+            routeAmountQueues.set(key, q);
+        }
+        q.push(r);
     });
 
     const resultByInMap = new Map();
     const resultByOutMap = new Map();
     (results || []).forEach((res) => {
+        if (!res) return;
         if (res.mInTransactionId) resultByInMap.set(Number(res.mInTransactionId), res);
         if (res.mOutTransactionId) resultByOutMap.set(Number(res.mOutTransactionId), res);
     });
@@ -39,6 +52,7 @@ export function buildAlignedSlots(mInRows = [], mOutRows = [], results = []) {
 
     // 1. Walk through M In rows in sequential order
     (mInRows || []).forEach((inRow) => {
+        if (!inRow) return;
         let matchedOut = null;
         let matchId = inRow.matchedTransactionId
             ? Number(inRow.matchedTransactionId)
@@ -57,18 +71,20 @@ export function buildAlignedSlots(mInRows = [], mOutRows = [], results = []) {
             usedMOutIds.add(matchId);
         }
 
-        // Fallback for route/amount match if matchId wasn't stored
+        // Fast O(1) queue lookup instead of O(N) scan for route/amount match if matchId wasn't stored
         if (!matchedOut && inRow.status === "MATCHED") {
-            const candidate = (mOutRows || []).find((out) =>
-                !usedMOutIds.has(Number(out.id)) &&
-                Number(out.amount) === Number(inRow.amount) &&
-                (out.status === "MATCHED" || !out.status || out.status === "PENDING") &&
-                String(out.toBranchId) === String(inRow.fromBranchId) &&
-                String(out.fromBranchId) === String(inRow.toBranchId)
-            );
-            if (candidate) {
-                matchedOut = candidate;
-                usedMOutIds.add(Number(candidate.id));
+            const key = `${inRow.fromBranchId}:${inRow.toBranchId}:${inRow.amount}`;
+            const queue = routeAmountQueues.get(key);
+            if (queue && queue.length > 0) {
+                while (queue.length > 0) {
+                    const candidate = queue.shift();
+                    const cId = Number(candidate.id);
+                    if (!usedMOutIds.has(cId) && (candidate.status === "MATCHED" || !candidate.status || candidate.status === "PENDING")) {
+                        matchedOut = candidate;
+                        usedMOutIds.add(cId);
+                        break;
+                    }
+                }
             }
         }
 
@@ -83,6 +99,7 @@ export function buildAlignedSlots(mInRows = [], mOutRows = [], results = []) {
 
     // 2. Append any remaining unmatched M Out rows
     (mOutRows || []).forEach((outRow) => {
+        if (!outRow) return;
         const outId = Number(outRow.id);
         if (!usedMOutIds.has(outId)) {
             const slotRow = slots.length + 1;

@@ -2544,7 +2544,6 @@ a {
     max-height: 540px;
     overflow-y: auto;
     overflow-x: auto;
-    scroll-behavior: smooth;
 }
 
 .spreadsheet-grid-table {
